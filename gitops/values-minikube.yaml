@@ -6,4 +6,4 @@ frontend:
   tag: 2dfeb4021203e5b95f12adf1a25bb407879a1819
 config:
   environment: minikube (argo cd)
-  banner: "All systems monitored"
+  banner: "SEV2 open: payments latency"
