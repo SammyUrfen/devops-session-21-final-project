@@ -1,0 +1,2 @@
+# Break 5: Ingress sends /api to port 8080; the backend Service listens on 8000 (the course chart has this bug).
+[{"op": "replace", "path": "/spec/rules/0/http/paths/0/backend/service/port/number", "value": 8080}]

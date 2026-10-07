@@ -18,6 +18,13 @@ spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets: {{- toYaml . | nindent 8 }}
       {{- end }}
+      initContainers:
+        # Without this wait, `alembic upgrade head` fails while Postgres starts and the pod restarts 1-2 times
+        # (seen in CI run 37652264374). Same image as the DB, so the node already has it.
+        - name: wait-for-db
+          image: postgres:16-alpine
+          command: ["sh", "-c", "until pg_isready -h incidentboard-postgres -p 5432; do sleep 2; done"]
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 32Mi}}
       containers:
         - name: backend
           image: "{{ .Values.backend.image }}:{{ .Values.backend.tag }}"

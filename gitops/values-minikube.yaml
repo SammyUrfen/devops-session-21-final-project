@@ -1,0 +1,9 @@
+# Values Argo CD layers on top of helm/incidentboard/values.yaml for the local minikube cluster.
+# Editing this file and pushing to main is the whole deploy process: Argo CD notices and syncs.
+backend:
+  tag: 2dfeb4021203e5b95f12adf1a25bb407879a1819
+frontend:
+  tag: 2dfeb4021203e5b95f12adf1a25bb407879a1819
+config:
+  environment: minikube (argo cd)
+  banner: "All systems monitored"
