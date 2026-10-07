@@ -1,0 +1,23 @@
+server {
+  listen 8080;
+  server_name _;
+  root /usr/share/nginx/html;
+  index index.html;
+
+  location / {
+    try_files $uri /index.html;
+  }
+
+  # Used by Docker Compose and by port-forward. In Kubernetes the Ingress sends /api straight to the backend.
+  # BACKEND_HOST is filled in by the image's envsubst step at start-up (compose: backend:8000).
+  location /api/ {
+    proxy_pass http://${BACKEND_HOST};
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  }
+
+  location = /healthz {
+    access_log off;
+    return 200 "ok\n";
+  }
+}

@@ -1,0 +1,34 @@
+# Run from the repo root:  docker compose -f docker/docker-compose.yml up --build
+name: incidentboard
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: incidentboard
+      POSTGRES_USER: incident
+      POSTGRES_PASSWORD: demo-password-not-real
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U incident -d incidentboard"]
+      interval: 3s
+      retries: 20
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    mem_limit: 256m
+
+  backend:
+    build: {context: ../application/backend, dockerfile: ../../docker/backend.Dockerfile}
+    environment:
+      DATABASE_URL: postgresql+psycopg://incident:demo-password-not-real@postgres:5432/incidentboard
+      ENVIRONMENT: docker-compose
+    depends_on:
+      postgres: {condition: service_healthy}
+    ports: ["42100:8000"]
+    mem_limit: 256m
+
+  frontend:
+    build: {context: ../application/frontend, dockerfile: ../../docker/frontend.Dockerfile}
+    depends_on: [backend]
+    ports: ["42101:8080"]
+    mem_limit: 128m
+
+volumes:
+  postgres-data:

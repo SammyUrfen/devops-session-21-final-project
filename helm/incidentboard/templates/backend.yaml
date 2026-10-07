@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: incidentboard-backend
+  labels: {{- include "ib.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.hpa.enabled }}
+  replicas: {{ .Values.backend.replicas }}
+  {{- end }}
+  selector: {matchLabels: {app: backend}}
+  template:
+    metadata:
+      labels: {app: backend}
+      annotations:
+        # Roll the pods when the ConfigMap changes; env vars are read only at start-up.
+        checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: backend
+          image: "{{ .Values.backend.image }}:{{ .Values.backend.tag }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          ports: [{name: http, containerPort: 8000}]
+          envFrom:
+            - configMapRef: {name: incidentboard-config}
+          env:
+            - name: DATABASE_URL
+              valueFrom: {secretKeyRef: {name: incidentboard-db, key: DATABASE_URL}}
+          readinessProbe:
+            httpGet: {path: /ready, port: http}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources: {{- toYaml .Values.backend.resources | nindent 12 }}
+          securityContext: {allowPrivilegeEscalation: false, runAsNonRoot: true}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: incidentboard-backend
+  labels:
+    app: backend
+    {{- include "ib.labels" . | nindent 4 }}
+spec:
+  selector: {app: backend}
+  ports: [{name: http, port: 8000, targetPort: http}]

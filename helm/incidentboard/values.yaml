@@ -1,0 +1,47 @@
+# Image repos are the GHCR names CI pushes to. CI and Argo CD override the tag with a commit SHA.
+backend:
+  image: ghcr.io/sammyurfen/incidentboard-backend
+  tag: latest
+  replicas: 2
+  resources:
+    requests: {cpu: 100m, memory: 96Mi}
+    limits: {cpu: 500m, memory: 256Mi}
+frontend:
+  image: ghcr.io/sammyurfen/incidentboard-frontend
+  tag: latest
+  replicas: 2
+  resources:
+    requests: {cpu: 20m, memory: 16Mi}
+    limits: {cpu: 200m, memory: 64Mi}
+imagePullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# Non-secret settings -> ConfigMap (env vars of the backend).
+config:
+  environment: dev
+  banner: "All systems monitored"
+
+postgres:
+  database: incidentboard
+  username: incident
+  # Demo value only. Real clusters pass this with --set or an external secret store.
+  password: demo-password-not-real
+  storage: 1Gi
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {cpu: 500m, memory: 256Mi}
+
+ingress:
+  enabled: true
+  className: nginx
+  host: incidentboard.local
+
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 50
+
+monitoring:
+  # Needs the kube-prometheus-stack CRDs. CI's kind cluster has none, so CI sets this to false.
+  enabled: true

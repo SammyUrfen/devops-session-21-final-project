@@ -1,0 +1,141 @@
+name: CI/CD + DevSecOps
+
+on:
+  push:
+    branches: [main]
+    # A values-only GitOps change needs no new image; Argo CD picks it up from Git.
+    paths-ignore: ["gitops/**", "**.md"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  BACKEND_IMAGE: ghcr.io/sammyurfen/incidentboard-backend
+  FRONTEND_IMAGE: ghcr.io/sammyurfen/incidentboard-frontend
+
+jobs:
+  test:
+    name: 1. Build + unit test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip, cache-dependency-path: application/backend/requirements-dev.txt}
+      - run: pip install -r requirements-dev.txt
+        working-directory: application/backend
+      - run: pytest -v
+        working-directory: application/backend
+      - uses: actions/setup-node@v4
+        with: {node-version: "22", cache: npm, cache-dependency-path: application/frontend/package-lock.json}
+      - name: Build frontend
+        run: npm ci && npm run build
+        working-directory: application/frontend
+      - name: Lint Helm chart
+        run: helm lint helm/incidentboard
+
+  sast:
+    name: 2. SAST (Bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install bandit==1.9.4
+      - name: Full report (all severities, never fails)
+        run: bandit -r application/backend/app --exit-zero
+      - name: Gate - fail on MEDIUM or higher
+        run: bandit -r application/backend/app --severity-level medium
+
+  sca:
+    name: 3. SCA (pip-audit + npm audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install pip-audit
+      - name: pip-audit (fails on any known vulnerability)
+        run: pip-audit -r application/backend/requirements-dev.txt
+      - name: npm audit (fails on high or critical)
+        run: npm audit --audit-level=high
+        working-directory: application/frontend
+
+  secrets:
+    name: 4. Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}   # scan the whole history, not only the last commit
+      - name: Install gitleaks
+        run: curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.28.0/gitleaks_8.28.0_linux_x64.tar.gz | tar -xz gitleaks
+      - name: Scan history
+        run: ./gitleaks git . --config security/gitleaks.toml --redact --verbose
+
+  image:
+    name: 5. Docker build, image scan, gate, push
+    needs: [test, sast, sca, secrets]   # the security gate: nothing is built or pushed unless all pass
+    runs-on: ubuntu-latest
+    permissions: {contents: read, packages: write}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Docker build (tag = commit SHA)
+        run: |
+          docker build -f docker/backend.Dockerfile -t $BACKEND_IMAGE:${{ github.sha }} application/backend
+          docker build -f docker/frontend.Dockerfile -t $FRONTEND_IMAGE:${{ github.sha }} application/frontend
+      - name: Install Trivy (official apt repository)
+        run: |
+          curl -fsSL https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update -qq && sudo apt-get install -y -qq trivy
+          trivy --version
+      - name: Image scan - full report (never fails)
+        run: |
+          for img in $BACKEND_IMAGE $FRONTEND_IMAGE; do
+            trivy image --severity LOW,MEDIUM,HIGH,CRITICAL $img:${{ github.sha }}
+          done
+      - name: Security gate - fail on fixable HIGH/CRITICAL
+        run: |
+          for img in $BACKEND_IMAGE $FRONTEND_IMAGE; do
+            trivy image --skip-db-update --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed \
+              --ignorefile security/.trivyignore $img:${{ github.sha }}
+          done
+      - name: Push to GHCR (main only)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          docker push $BACKEND_IMAGE:${{ github.sha }}
+          docker push $FRONTEND_IMAGE:${{ github.sha }}
+
+  deploy:
+    name: 6. Deploy with Helm to kind
+    needs: image
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions: {contents: read, packages: read}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: helm/kind-action@v1
+        with: {cluster_name: s21}
+      - name: GHCR pull secret (packages are private by default)
+        run: |
+          kubectl create namespace incidentboard
+          kubectl -n incidentboard create secret docker-registry ghcr-pull --docker-server=ghcr.io \
+            --docker-username=${{ github.actor }} --docker-password=${{ secrets.GITHUB_TOKEN }}
+      - name: helm upgrade --install with the images from this run
+        run: |
+          helm upgrade --install incidentboard helm/incidentboard -n incidentboard \
+            --set backend.tag=${{ github.sha }} --set frontend.tag=${{ github.sha }} \
+            --set 'imagePullSecrets[0].name=ghcr-pull' \
+            --set monitoring.enabled=false --set ingress.enabled=false --set hpa.enabled=false \
+            --wait --timeout 5m
+          kubectl -n incidentboard get deploy,pods,svc,pvc -o wide
+      - name: Smoke test through the Services
+        run: |
+          kubectl -n incidentboard run smoke --rm -i --restart=Never --image=curlimages/curl -- \
+            sh -c 'curl -sf incidentboard-backend:8000/ready && echo && curl -sf incidentboard-frontend/api/incidents/stats'
+      - name: Debug on failure
+        if: failure()
+        run: kubectl -n incidentboard describe pods; kubectl -n incidentboard get events --sort-by=.lastTimestamp

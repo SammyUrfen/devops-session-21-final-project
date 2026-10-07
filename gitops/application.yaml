@@ -1,0 +1,26 @@
+# Apply once by hand. After that, Git is the source of truth: Argo CD renders helm/incidentboard
+# with gitops/values-minikube.yaml and keeps the cluster equal to it.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: incidentboard
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/SammyUrfen/devops-session-21-final-project.git
+    targetRevision: main
+    path: helm/incidentboard
+    helm:
+      releaseName: incidentboard
+      valueFiles:
+        - ../../gitops/values-minikube.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: incidentboard
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

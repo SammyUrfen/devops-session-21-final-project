@@ -1,0 +1,33 @@
+{{- if .Values.monitoring.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: incidentboard-backend
+  labels: {{- include "ib.labels" . | nindent 4 }}
+spec:
+  selector: {matchLabels: {app: backend}}
+  endpoints: [{port: http, path: /metrics, interval: 15s}]
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: incidentboard-alerts
+  labels: {{- include "ib.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: incidentboard
+      rules:
+        - alert: IncidentBoardBackendDown
+          # up==0 catches a failing scrape; absent() catches "no backend pods at all"
+          expr: absent(up{job="incidentboard-backend", namespace="{{ .Release.Namespace }}"} == 1)
+          for: 1m
+          labels: {severity: critical}
+          annotations:
+            summary: "No healthy IncidentBoard backend target in {{ .Release.Namespace }}"
+        - alert: IncidentBoardHigh5xxRate
+          expr: sum(rate(http_requests_total{job="incidentboard-backend", status="5xx"}[2m])) > 0.1
+          for: 2m
+          labels: {severity: warning}
+          annotations:
+            summary: "Backend returns more than 0.1 5xx responses per second"
+{{- end }}

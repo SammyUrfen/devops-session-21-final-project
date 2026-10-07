@@ -1,0 +1,6 @@
+# Copy to terraform.tfvars and edit. terraform.tfvars is git-ignored.
+aws_region       = "ap-south-1"
+project          = "incidentboard"
+instance_type    = "t3.small"
+ssh_allowed_cidr = "203.0.113.10/32" # replace with your public IP: curl -s https://checkip.amazonaws.com
+# key_name       = "my-existing-keypair"
