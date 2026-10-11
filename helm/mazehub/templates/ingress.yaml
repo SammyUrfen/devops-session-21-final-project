@@ -3,7 +3,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: mazehub
-  labels: {{- include "ib.labels" . | nindent 4 }}
+  labels: {{- include "mazehub.labels" . | nindent 4 }}
 spec:
   ingressClassName: {{ .Values.ingress.className }}
   rules:

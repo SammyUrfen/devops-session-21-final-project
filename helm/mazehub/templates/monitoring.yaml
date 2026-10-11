@@ -3,7 +3,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: mazehub-backend
-  labels: {{- include "ib.labels" . | nindent 4 }}
+  labels: {{- include "mazehub.labels" . | nindent 4 }}
 spec:
   selector: {matchLabels: {app: backend}}
   endpoints: [{port: http, path: /metrics, interval: 15s}]
@@ -12,7 +12,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
   name: mazehub-alerts
-  labels: {{- include "ib.labels" . | nindent 4 }}
+  labels: {{- include "mazehub.labels" . | nindent 4 }}
 spec:
   groups:
     - name: mazehub

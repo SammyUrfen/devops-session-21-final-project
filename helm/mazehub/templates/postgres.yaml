@@ -2,7 +2,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: mazehub-postgres-data
-  labels: {{- include "ib.labels" . | nindent 4 }}
+  labels: {{- include "mazehub.labels" . | nindent 4 }}
 spec:
   accessModes: [ReadWriteOnce]
   resources: {requests: {storage: {{ .Values.postgres.storage }}}}
@@ -11,7 +11,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: mazehub-postgres
-  labels: {{- include "ib.labels" . | nindent 4 }}
+  labels: {{- include "mazehub.labels" . | nindent 4 }}
 spec:
   selector: {app: postgres}
   ports: [{name: pg, port: 5432, targetPort: 5432}]
@@ -20,7 +20,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: mazehub-postgres
-  labels: {{- include "ib.labels" . | nindent 4 }}
+  labels: {{- include "mazehub.labels" . | nindent 4 }}
 spec:
   replicas: 1
   # Recreate: two pods must never mount the same RWO data dir during a rollout.

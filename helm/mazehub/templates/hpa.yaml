@@ -3,7 +3,7 @@ apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: mazehub-backend
-  labels: {{- include "ib.labels" . | nindent 4 }}
+  labels: {{- include "mazehub.labels" . | nindent 4 }}
 spec:
   scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: mazehub-backend}
   minReplicas: {{ .Values.hpa.minReplicas }}

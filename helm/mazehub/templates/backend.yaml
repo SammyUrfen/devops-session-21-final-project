@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: mazehub-backend
-  labels: {{- include "ib.labels" . | nindent 4 }}
+  labels: {{- include "mazehub.labels" . | nindent 4 }}
 spec:
   {{- if not .Values.hpa.enabled }}
   replicas: {{ .Values.backend.replicas }}
@@ -52,7 +52,7 @@ metadata:
   name: mazehub-backend
   labels:
     app: backend
-    {{- include "ib.labels" . | nindent 4 }}
+    {{- include "mazehub.labels" . | nindent 4 }}
 spec:
   selector: {app: backend}
   ports: [{name: http, port: 8000, targetPort: http}]
