@@ -1,7 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
-import { DIRECTIONS, canMove, statTiles, step, wallsOf } from './maze.js';
+import {
+  WALL_E, WALL_S, canMove, closedGrid, isBorderEdge, solveLocal, statTiles, step,
+  toggleWall, wallsOf,
+} from './maze.js';
 
 // Same-origin base path. Nginx (compose) and the Ingress (Kubernetes) both route /api
 // to the backend, so the host must never appear here.
@@ -10,6 +13,17 @@ const API = '/api';
 const PLAYER_KEY = 'mazehub.player';
 const DIFFICULTIES = ['EASY', 'MEDIUM', 'HARD'];
 const FILTERS = ['All', ...DIFFICULTIES];
+
+// The gallery tabs map one to one onto the `source` query of GET /api/mazes, so a drawn maze never
+// appears beside a generated one. See PLAN.md section 11.
+const TABS = [
+  { key: 'GENERATED', label: 'Generated' },
+  { key: 'COMMUNITY', label: 'Community' },
+];
+
+// The sizes the Draw view offers. Both the client and the server accept 4 to 20, but a drawing
+// larger than 16 is slow to click out by hand.
+const DRAW_SIZES = [8, 12, 16];
 
 // Arrow keys and WASD both move one cell. event.key is lower-cased before lookup.
 const KEY_TO_DIRECTION = {
@@ -52,6 +66,7 @@ function App() {
   const [player, setPlayer] = useState(() => localStorage.getItem(PLAYER_KEY) || '');
   const [view, setView] = useState('gallery');
   const [playing, setPlaying] = useState(null); // the maze id open in the play view
+  const [tab, setTab] = useState(TABS[0].key); // which gallery tab is open
 
   const savePlayer = (name) => {
     localStorage.setItem(PLAYER_KEY, name);
@@ -62,6 +77,8 @@ function App() {
 
   const open = (id) => { setPlaying(id); setView('play'); };
   const backToGallery = () => { setPlaying(null); setView('gallery'); };
+  // After a drawing is published the Community tab is the only place it appears.
+  const afterDraw = () => { setTab('COMMUNITY'); backToGallery(); };
 
   return (
     <div className="app">
@@ -73,6 +90,7 @@ function App() {
         <nav>
           <a className={view === 'gallery' || view === 'play' ? 'active' : ''} onClick={backToGallery}>▦ <span>Gallery</span></a>
           <a className={view === 'publish' ? 'active' : ''} onClick={() => setView('publish')}>＋ <span>Publish</span></a>
+          <a className={view === 'draw' ? 'active' : ''} onClick={() => setView('draw')}>✎ <span>Draw</span></a>
           <a className={view === 'completed' ? 'active' : ''} onClick={() => setView('completed')}>✓ <span>Completed</span></a>
         </nav>
         <div className="side-bottom">
@@ -88,7 +106,10 @@ function App() {
         </div>
       </aside>
       <main className="main">
-        {view === 'gallery' && <Gallery onPlay={open} onPublish={() => setView('publish')} />}
+        {view === 'gallery' && (
+          <Gallery tab={tab} onTab={setTab} onPlay={open} onPublish={() => setView('publish')} onDraw={() => setView('draw')} />
+        )}
+        {view === 'draw' && <Draw author={player} onDone={afterDraw} onCancel={backToGallery} />}
         {view === 'play' && <Play mazeId={playing} player={player} onExit={backToGallery} />}
         {view === 'publish' && <Publish author={player} onDone={backToGallery} />}
         {view === 'completed' && <Completed player={player} />}
@@ -119,7 +140,7 @@ function NameGate({ onSave }) {
   );
 }
 
-function Gallery({ onPlay, onPublish }) {
+function Gallery({ tab, onTab, onPlay, onPublish, onDraw }) {
   const [mazes, setMazes] = useState([]);
   const [stats, setStats] = useState(null);
   const [filter, setFilter] = useState('All');
@@ -130,7 +151,11 @@ function Gallery({ onPlay, onPublish }) {
     setLoading(true);
     setError('');
     try {
-      const query = filter === 'All' ? '' : `?difficulty=${filter}`;
+      // The difficulty chips apply to the generated tab only: a drawn maze carries a derived
+      // badge, so filtering the community list by it would hide mazes for no reason the user set.
+      const query = tab === 'GENERATED' && filter !== 'All'
+        ? `?source=GENERATED&difficulty=${filter}`
+        : `?source=${tab}`;
       const [list, counts] = await Promise.all([request(`/mazes${query}`), request('/mazes/stats')]);
       setMazes(list);
       setStats(counts);
@@ -139,7 +164,7 @@ function Gallery({ onPlay, onPublish }) {
     } finally {
       setLoading(false);
     }
-  }, [filter]);
+  }, [filter, tab]);
   useEffect(() => { load(); }, [load]);
 
   const remove = async (maze) => {
@@ -160,8 +185,16 @@ function Gallery({ onPlay, onPublish }) {
           <h1>Pick a maze</h1>
           <p className="muted">Every grid is generated and checked on the server before it is published.</p>
         </div>
-        <button className="primary" onClick={onPublish}>＋ Publish a maze</button>
+        <div className="card-actions">
+          <button className="ghost" onClick={onDraw}>✎ Draw one</button>
+          <button className="primary" onClick={onPublish}>＋ Publish a maze</button>
+        </div>
       </header>
+      <div className="filters tabs">
+        {TABS.map((t) => (
+          <button key={t.key} className={tab === t.key ? 'selected' : ''} onClick={() => onTab(t.key)}>{t.label}</button>
+        ))}
+      </div>
       {error && <ErrorBanner message={error} onRetry={load} />}
       {/* statTiles flattens the server's shape, including the nested by_difficulty counts. */}
       <section className="stats">
@@ -171,12 +204,21 @@ function Gallery({ onPlay, onPublish }) {
       </section>
       <section className="panel">
         <div className="panel-head">
-          <div><h2>Mazes</h2><p className="muted">Shortest path is the fewest moves the server will accept.</p></div>
-          <div className="filters">
-            {FILTERS.map((f) => (
-              <button key={f} className={filter === f ? 'selected' : ''} onClick={() => setFilter(f)}>{f}</button>
-            ))}
+          <div>
+            <h2>{tab === 'GENERATED' ? 'Generated mazes' : 'Community mazes'}</h2>
+            <p className="muted">
+              {tab === 'GENERATED'
+                ? 'Carved by the server from a seed. Shortest path is the fewest moves it will accept.'
+                : 'Drawn by hand and checked by the server. The badge comes from the path length.'}
+            </p>
           </div>
+          {tab === 'GENERATED' && (
+            <div className="filters">
+              {FILTERS.map((f) => (
+                <button key={f} className={filter === f ? 'selected' : ''} onClick={() => setFilter(f)}>{f}</button>
+              ))}
+            </div>
+          )}
         </div>
         {loading ? <div className="empty">Loading mazes…</div> : (
           <div className="cards">
@@ -198,7 +240,11 @@ function Gallery({ onPlay, onPublish }) {
                 </div>
               </article>
             ))}
-            {!mazes.length && !error && <div className="empty">No mazes in this filter yet. Publish one.</div>}
+            {!mazes.length && !error && (
+              <div className="empty">
+                {tab === 'GENERATED' ? 'No mazes in this filter yet. Publish one.' : 'No drawn mazes yet. Open Draw and make one.'}
+              </div>
+            )}
           </div>
         )}
       </section>
@@ -507,6 +553,163 @@ function Completed({ player }) {
             {!newestFirst.length && !error && <div className="empty">No runs yet. Solve a maze from the gallery.</div>}
           </div>
         )}
+      </section>
+    </>
+  );
+}
+
+/** Which of the four edges of a cell a click landed nearest.
+ *
+ * Two steps on purpose: find the cell, then the nearest of its own four edges. A single
+ * nearest-edge search over the whole grid would need every edge in a list and would still pick the
+ * same one, so the cheap version wins.
+ */
+function edgeAt(px, py) {
+  const x = Math.floor(px / CELL_PIXELS);
+  const y = Math.floor(py / CELL_PIXELS);
+  const inCellX = px - x * CELL_PIXELS;
+  const inCellY = py - y * CELL_PIXELS;
+  const distances = [
+    { dir: 'N', away: inCellY },
+    { dir: 'S', away: CELL_PIXELS - inCellY },
+    { dir: 'W', away: inCellX },
+    { dir: 'E', away: CELL_PIXELS - inCellX },
+  ];
+  const nearest = distances.reduce((best, one) => (one.away < best.away ? one : best));
+  return { x, y, dir: nearest.dir };
+}
+
+function Draw({ author, onDone, onCancel }) {
+  const [size, setSize] = useState(DRAW_SIZES[0]);
+  const [grid, setGrid] = useState(() => closedGrid(DRAW_SIZES[0], DRAW_SIZES[0]));
+  const [checked, setChecked] = useState(null); // the last local Check result
+  const [notice, setNotice] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const canvasRef = useRef(null);
+
+  const resize = (next) => {
+    setSize(next);
+    setGrid(closedGrid(next, next));
+    setChecked(null);
+    setNotice('');
+  };
+
+  const clear = () => {
+    setGrid(closedGrid(size, size));
+    setChecked(null);
+    setNotice('Every wall is closed again.');
+  };
+
+  // How many inner walls are open. Counted once per shared wall, from the east and south sides
+  // only, so one opening is not counted twice.
+  const openWalls = useMemo(() => {
+    let open = 0;
+    for (let y = 0; y < size; y += 1) {
+      for (let x = 0; x < size; x += 1) {
+        if (x + 1 < size && !(grid[y][x] & WALL_E)) open += 1;
+        if (y + 1 < size && !(grid[y][x] & WALL_S)) open += 1;
+      }
+    }
+    return open;
+  }, [grid, size]);
+
+  const onCanvasClick = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    // The canvas is drawn at devicePixelRatio but laid out at CSS pixels, so scale the hit test.
+    const scale = (size * CELL_PIXELS) / rect.width;
+    const spot = edgeAt((e.clientX - rect.left) * scale, (e.clientY - rect.top) * scale);
+    if (spot.x < 0 || spot.y < 0 || spot.x >= size || spot.y >= size) return;
+    if (isBorderEdge(size, size, spot.x, spot.y, spot.dir)) {
+      setNotice('That is a border wall. The outside of the maze must stay closed.');
+      return;
+    }
+    setGrid(toggleWall(grid, spot.x, spot.y, spot.dir));
+    setChecked(null);
+    setNotice('');
+  };
+
+  const check = () => {
+    setChecked(solveLocal(grid));
+    setNotice('');
+  };
+
+  const publish = async (e) => {
+    e.preventDefault();
+    const title = new FormData(e.currentTarget).get('title');
+    const name = new FormData(e.currentTarget).get('author');
+    setBusy(true);
+    setError('');
+    try {
+      await request('/mazes/community', jsonPost('POST', {
+        title, author: name, width: size, height: size, grid,
+      }));
+      onDone();
+    } catch (err) {
+      // The server runs the same five checks and answers 422 with the reason. Show its words.
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    draw(canvasRef.current, { width: size, height: size, grid }, { x: 0, y: 0 }, null);
+  }, [grid, size]);
+
+  return (
+    <>
+      <header>
+        <div>
+          <p className="eyebrow">MAZEHUB / DRAW</p>
+          <h1>Draw a maze</h1>
+          <p className="muted">Click near the edge of a cell to open or close that wall. Both sides move together.</p>
+        </div>
+        <button className="ghost" onClick={onCancel}>← Gallery</button>
+      </header>
+      {error && <ErrorBanner message={error} />}
+      <section className="panel play-panel">
+        <div className="panel-head">
+          <div><h2>Canvas</h2><p className="muted">Every wall starts closed. The entrance is the dot, the exit is the green square.</p></div>
+          <div className="card-actions">
+            <div className="filters">
+              {DRAW_SIZES.map((n) => (
+                <button key={n} className={size === n ? 'selected' : ''} onClick={() => resize(n)}>{n}×{n}</button>
+              ))}
+            </div>
+            <button className="ghost" onClick={clear}>Clear</button>
+            <button className="primary" onClick={check}>Check</button>
+          </div>
+        </div>
+        <div className="board">
+          <canvas ref={canvasRef} onClick={onCanvasClick} style={{ cursor: 'crosshair' }} />
+        </div>
+        <section className="stats">
+          <Stat label="size" value={`${size}×${size}`} />
+          <Stat label="open walls" value={openWalls} />
+          <Stat label="check" value={checked ? (checked.solvable ? 'solvable' : 'no path') : 'not run'} />
+          <Stat label="path length" value={checked?.solvable ? checked.length : '—'} />
+        </section>
+        {notice && <p className="hint">{notice}</p>}
+        {checked && (
+          <div className={`result ${checked.solvable ? 'ok' : 'bad'}`}>
+            {checked.solvable
+              ? <span><b>Solvable.</b> The shortest path is {checked.length} cells, so {checked.length - 1} moves.</span>
+              : <span><b>No path yet.</b> Open more walls between the top left and the bottom right.</span>}
+          </div>
+        )}
+      </section>
+      <section className="panel form-panel">
+        <form onSubmit={publish}>
+          <div className="form-row">
+            <label>Title<input name="title" required maxLength={80} placeholder="e.g. Hand Cut" /></label>
+            <label>Author<input name="author" required defaultValue={author} maxLength={40} /></label>
+          </div>
+          <p className="muted">The server repeats the check and derives the badge from the path length. Under 20 is EASY, 20 to 44 is MEDIUM, 45 and above is HARD.</p>
+          <button className="primary full" disabled={busy || !checked?.solvable}>
+            {busy ? 'Publishing…' : checked?.solvable ? 'Publish' : 'Run Check first'}
+          </button>
+        </form>
       </section>
     </>
   );

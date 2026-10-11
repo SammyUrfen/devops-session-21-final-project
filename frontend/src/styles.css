@@ -182,3 +182,7 @@ input:focus, select:focus { border-color: var(--accent); }
   .main { margin: 0; width: 100%; padding: 20px; }
   .form-row { grid-template-columns: 1fr; }
 }
+
+/* The gallery source tabs sit above the panel, so they need the gap the panel head gives the
+   difficulty chips. */
+.filters.tabs { margin: 0 0 16px; }

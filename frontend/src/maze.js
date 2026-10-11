@@ -59,3 +59,71 @@ export function statTiles(stats) {
       : [{ label: key.replace(/_/g, ' '), value }],
   );
 }
+
+// --- Hand drawing (PLAN.md section 11) ---
+// A drawn grid starts with every wall closed and the person opens the ones they want. The two
+// cells beside a wall must always agree, so every toggle flips both sides. The server repeats the
+// same checks in app/maze.py, so a bug here cannot publish a broken maze.
+
+export const ALL_WALLS = WALL_N | WALL_E | WALL_S | WALL_W; // a cell sealed on every side
+
+// The wall facing back from the neighbour, for each side of a cell.
+const OPPOSITE = { N: 'S', E: 'W', S: 'N', W: 'E' };
+
+/** A drawing grid of `width` x `height` cells with every wall in place. */
+export function closedGrid(width, height) {
+  return Array.from({ length: height }, () => Array.from({ length: width }, () => ALL_WALLS));
+}
+
+/** True when `dir` of (x,y) is an outer edge of the grid, which must stay closed. */
+export function isBorderEdge(width, height, x, y, dir) {
+  const d = DIRECTIONS[dir];
+  if (!d) return false;
+  const tx = x + d.dx;
+  const ty = y + d.dy;
+  return tx < 0 || ty < 0 || tx >= width || ty >= height;
+}
+
+/** Flip the wall on `dir` of (x,y) and the matching side of its neighbour.
+ *
+ * Returns a new grid, or null when the edge is on the border. Null rather than an unchanged grid,
+ * so the Draw view can tell the difference and say why nothing happened.
+ */
+export function toggleWall(grid, x, y, dir) {
+  const height = grid.length;
+  const width = grid[0].length;
+  if (!DIRECTIONS[dir] || grid[y]?.[x] === undefined) return null;
+  if (isBorderEdge(width, height, x, y, dir)) return null;
+  const next = grid.map((row) => row.slice());
+  const target = step(x, y, dir);
+  next[y][x] ^= DIRECTIONS[dir].bit;
+  next[target.y][target.x] ^= DIRECTIONS[OPPOSITE[dir]].bit;
+  return next;
+}
+
+/** Breadth-first search from (0,0) to the bottom-right cell, run in the browser.
+ *
+ * Breadth-first, not depth-first, because the reported length must be the shortest path: the
+ * server stores that number and its cheat guard rejects any run below it.
+ */
+export function solveLocal(grid) {
+  const height = grid.length;
+  const width = grid[0].length;
+  const goal = `${width - 1},${height - 1}`;
+  const distance = new Map([['0,0', 1]]); // path length in cells, so the entrance counts as one
+  const queue = [{ x: 0, y: 0 }];
+  for (let head = 0; head < queue.length; head += 1) {
+    const { x, y } = queue[head];
+    const here = distance.get(`${x},${y}`);
+    if (`${x},${y}` === goal) return { solvable: true, length: here };
+    for (const dir of Object.keys(DIRECTIONS)) {
+      if (!canMove(grid, x, y, dir)) continue;
+      const next = step(x, y, dir);
+      const key = `${next.x},${next.y}`;
+      if (distance.has(key)) continue;
+      distance.set(key, here + 1);
+      queue.push(next);
+    }
+  }
+  return { solvable: false, length: 0 };
+}
