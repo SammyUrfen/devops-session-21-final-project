@@ -18,8 +18,12 @@ class Maze(Base):
     difficulty: Mapped[str] = mapped_column(String(10), default="EASY")
     width: Mapped[int] = mapped_column(Integer, nullable=False)
     height: Mapped[int] = mapped_column(Integer, nullable=False)
+    # GENERATED or COMMUNITY. The generated gallery filters on it, so a hand-drawn maze never
+    # appears beside a carved one. See PLAN.md section 11.
+    source: Mapped[str] = mapped_column(String(10), nullable=False, default="GENERATED")
     # BigInteger, not Integer: a seed is drawn from a 62-bit range so a published maze is hard to guess.
-    seed: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # Nullable because a hand-drawn maze has no seed, its grid is the only source of truth.
+    seed: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     # The wall bitmask grid as JSON text. Text keeps the column portable between Postgres and the
     # SQLite test database, and the grid is only ever read and written whole.
     grid: Mapped[str] = mapped_column(Text, nullable=False)

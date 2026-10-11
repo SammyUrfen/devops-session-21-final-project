@@ -52,7 +52,7 @@ def test_read_and_404(client):
 
 
 def test_list_newest_first_and_filters(client):
-    _publish(client, "first", "EASY", author="bibek")
+    _publish(client, "first", "EASY", author="explorer")
     _publish(client, "second", "HARD", author="ajij")
     assert [m["title"] for m in client.get("/api/mazes").json()] == ["second", "first"]
     assert [m["title"] for m in client.get("/api/mazes?difficulty=EASY").json()] == ["first"]
@@ -78,15 +78,16 @@ def test_delete_then_404(client):
 
 
 def test_stats(client):
-    _publish(client, "a", "EASY", author="bibek")
+    _publish(client, "a", "EASY", author="explorer")
     maze = _publish(client, "b", "HARD", author="ajij")
     client.post(
         f"/api/mazes/{maze['id']}/completions",
-        json={"player": "bibek", "moves": maze["solution_length"], "seconds": 30},
+        json={"player": "nova", "moves": maze["solution_length"], "seconds": 30},
     )
     assert client.get("/api/mazes/stats").json() == {
         "total": 2,
         "by_difficulty": {"EASY": 1, "MEDIUM": 0, "HARD": 1},
+        "by_source": {"GENERATED": 2, "COMMUNITY": 0},
         "completions": 1,
         "authors": 2,
     }
@@ -104,15 +105,15 @@ def test_completion_flow(client):
     maze = _publish(client, "Run", "EASY")
     r = client.post(
         f"/api/mazes/{maze['id']}/completions",
-        json={"player": "bibek", "moves": maze["solution_length"] + 5, "seconds": 42},
+        json={"player": "nova", "moves": maze["solution_length"] + 5, "seconds": 42},
     )
     assert r.status_code == 201
     done = r.json()
     assert done["maze_id"] == maze["id"]
     assert done["maze_title"] == "Run"
-    assert done["player"] == "bibek"
+    assert done["player"] == "nova"
     assert client.get(f"/api/mazes/{maze['id']}").json()["completion_count"] == 1
-    assert [c["id"] for c in client.get("/api/completions?player=bibek").json()] == [done["id"]]
+    assert [c["id"] for c in client.get("/api/completions?player=nova").json()] == [done["id"]]
     assert client.get("/api/completions?player=nobody").json() == []
 
 
@@ -126,7 +127,7 @@ def test_completion_accepts_the_optimal_run(client):
     best_moves = maze["solution_length"] - 1
     r = client.post(
         f"/api/mazes/{maze['id']}/completions",
-        json={"player": "bibek", "moves": best_moves, "seconds": 9},
+        json={"player": "nova", "moves": best_moves, "seconds": 9},
     )
     assert r.status_code == 201, r.text
     assert r.json()["moves"] == best_moves

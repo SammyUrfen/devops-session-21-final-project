@@ -177,3 +177,83 @@ def generate_verified(width: int, height: int, seed: int) -> tuple[Grid, list[Ce
 
 class MazeInvariantError(RuntimeError):
     """A generated grid failed the solver check or the reachability check."""
+
+
+# --- Hand-drawn community mazes (PLAN.md section 11) ---------------------------------------------
+
+# A drawn grid is not generated, so nothing but these bounds limits it. Below 4 a maze is not a
+# maze, and 20 is the largest size the renderer and the HARD generator already handle.
+MIN_DRAWN_SIZE = 4
+MAX_DRAWN_SIZE = 20
+
+# Derived difficulty badge for a drawn maze, keyed on the shortest path length. A drawn grid has no
+# difficulty of its own, so the label comes from how far the player must walk.
+COMMUNITY_MEDIUM_FROM = 20
+COMMUNITY_HARD_FROM = 45
+
+
+def derived_difficulty(solution_length: int) -> str:
+    """The badge of a drawn maze. The label is cosmetic, it never changes the grid."""
+    if solution_length >= COMMUNITY_HARD_FROM:
+        return "HARD"
+    if solution_length >= COMMUNITY_MEDIUM_FROM:
+        return "MEDIUM"
+    return "EASY"
+
+
+def check_drawn_grid(width: int, height: int, grid: object) -> str | None:
+    """Return the reason a hand-drawn grid is unacceptable, or None when every check passes.
+
+    The client draws the grid, so the whole payload is untrusted input. Each check names what it
+    stops, because the browser shows this sentence to the person who drew the maze.
+    """
+    # 1. Size. An unbounded width or height lets one request allocate an arbitrary grid and makes
+    #    every later loop as long as the attacker likes. Reject before anything is indexed.
+    if not (MIN_DRAWN_SIZE <= width <= MAX_DRAWN_SIZE and MIN_DRAWN_SIZE <= height <= MAX_DRAWN_SIZE):
+        return (
+            f"size {width}x{height} is out of range, width and height must be "
+            f"between {MIN_DRAWN_SIZE} and {MAX_DRAWN_SIZE}"
+        )
+    if (
+        not isinstance(grid, list)
+        or len(grid) != height
+        or any(not isinstance(row, list) or len(row) != width for row in grid)
+    ):
+        return f"the grid shape does not match the declared size of {width}x{height}"
+
+    # 2. Cell values. A value outside 0..15 means stray bits the renderer and the solver both
+    #    ignore, so the stored grid would not be the grid anybody drew or plays. A bool is an int
+    #    in Python, and True would silently become the wall mask 1.
+    for y, row in enumerate(grid):
+        for x, value in enumerate(row):
+            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= ALL_WALLS:
+                return f"cell ({x}, {y}) is {value!r}, every value must be an integer between 0 and 15"
+
+    # 3. Closed border. An open border lets the player walk off the grid, which the play canvas
+    #    guards against but no stored maze should ever require.
+    for x in range(width):
+        if not grid[0][x] & WALL_N:
+            return f"the border is open at the top of column {x}, an outer wall cannot be removed"
+        if not grid[height - 1][x] & WALL_S:
+            return f"the border is open at the bottom of column {x}, an outer wall cannot be removed"
+    for y in range(height):
+        if not grid[y][0] & WALL_W:
+            return f"the border is open at the left of row {y}, an outer wall cannot be removed"
+        if not grid[y][width - 1] & WALL_E:
+            return f"the border is open at the right of row {y}, an outer wall cannot be removed"
+
+    # 4. Neighbours agree. This is the check a drawing tool breaks most often: it flips one side of
+    #    a shared wall and forgets the other. The solver would then find a path through a wall the
+    #    renderer still draws, so the player sees a maze that cannot be walked.
+    for y in range(height):
+        for x in range(width):
+            if x + 1 < width and bool(grid[y][x] & WALL_E) != bool(grid[y][x + 1] & WALL_W):
+                return f"cells ({x}, {y}) and ({x + 1}, {y}) disagree about the wall between them"
+            if y + 1 < height and bool(grid[y][x] & WALL_S) != bool(grid[y + 1][x] & WALL_N):
+                return f"cells ({x}, {y}) and ({x}, {y + 1}) disagree about the wall between them"
+
+    # 5. A path exists. Without this a maze could be published that nobody can finish, and
+    #    solution_length would be zero, which would disable the cheat guard on completions.
+    if not solve(grid):
+        return "no path leads from the entrance to the exit, the maze cannot be finished"
+    return None

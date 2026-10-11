@@ -13,6 +13,7 @@ from .config import settings
 from .db import Base, engine, get_db
 from .models import Completion, Maze
 from .schemas import (
+    CommunityMazeCreate,
     CompletionCreate,
     CompletionOut,
     MazeCreate,
@@ -43,6 +44,11 @@ async def lifespan(_app: FastAPI):
     yield
 
 
+# The two values of mazes.source. Frozen by PLAN.md section 11.
+GENERATED = "GENERATED"
+COMMUNITY = "COMMUNITY"
+SOURCES = (GENERATED, COMMUNITY)
+
 # One alias for the request-scoped session, so every route reads the same way.
 DbSession = Annotated[Session, Depends(get_db)]
 
@@ -58,6 +64,7 @@ def _to_out(maze: Maze) -> MazeOut:
         difficulty=maze.difficulty,
         width=maze.width,
         height=maze.height,
+        source=maze.source,
         seed=maze.seed,
         grid=json.loads(maze.grid),
         solution_length=maze.solution_length,
@@ -117,12 +124,17 @@ def list_mazes(
     db: DbSession,
     difficulty: str | None = Query(default=None),
     author: str | None = Query(default=None),
+    source: str | None = Query(default=None),
 ):
+    """No source value returns both kinds. The gallery asks for one kind per tab, so a hand-drawn
+    maze never shows up beside a generated one."""
     query = select(Maze).order_by(Maze.id.desc())
     if difficulty:
         query = query.where(Maze.difficulty == difficulty)
     if author:
         query = query.where(Maze.author == author)
+    if source:
+        query = query.where(Maze.source == source)
     return [_to_out(m) for m in db.scalars(query)]
 
 
@@ -133,9 +145,13 @@ def stats(db: DbSession):
     counts = dict(
         db.execute(select(Maze.difficulty, func.count(Maze.id)).group_by(Maze.difficulty)).all()
     )
+    sources = dict(
+        db.execute(select(Maze.source, func.count(Maze.id)).group_by(Maze.source)).all()
+    )
     return StatsOut(
         total=sum(counts.values()),
         by_difficulty={key: counts.get(key, 0) for key in maze_lib.SIZES},
+        by_source={key: sources.get(key, 0) for key in SOURCES},
         completions=db.scalar(select(func.count(Completion.id))) or 0,
         authors=db.scalar(select(func.count(func.distinct(Maze.author)))) or 0,
     )
@@ -157,6 +173,36 @@ def create_maze(payload: MazeCreate, db: DbSession):
     return _to_out(maze)
 
 
+@app.post(
+    "/api/mazes/community", response_model=MazeOut, status_code=status.HTTP_201_CREATED
+)
+def create_community_maze(payload: CommunityMazeCreate, db: DbSession):
+    """Store a maze a person drew. The server never generates this grid, so it audits it instead.
+
+    check_drawn_grid returns one sentence for the first rule the grid breaks, and that sentence is
+    the 422 detail the browser shows. The difficulty is a derived badge, not an input.
+    """
+    reason = maze_lib.check_drawn_grid(payload.width, payload.height, payload.grid)
+    if reason is not None:
+        raise HTTPException(status_code=422, detail=reason)
+    path = maze_lib.solve(payload.grid)
+    maze = Maze(
+        title=payload.title,
+        author=payload.author,
+        source=COMMUNITY,
+        difficulty=maze_lib.derived_difficulty(len(path)),
+        width=payload.width,
+        height=payload.height,
+        seed=None,
+        grid=json.dumps(payload.grid),
+        solution_length=len(path),
+    )
+    db.add(maze)
+    db.commit()
+    db.refresh(maze)
+    return _to_out(maze)
+
+
 @app.put("/api/mazes/{maze_id}", response_model=MazeOut)
 def update_maze(maze_id: int, payload: MazeUpdate, db: DbSession):
     maze = _get_or_404(db, maze_id)
@@ -164,6 +210,16 @@ def update_maze(maze_id: int, payload: MazeUpdate, db: DbSession):
     if fields.get("title"):
         maze.title = fields["title"]
     new_difficulty = fields.get("difficulty")
+    if new_difficulty and maze.source == COMMUNITY:
+        # A difficulty change regenerates the grid. On a drawn maze that would throw away work a
+        # person did by hand, so refuse instead of overwriting it. A title edit is still allowed.
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "this maze was drawn by hand, so its difficulty is derived from the path length "
+                "and cannot be set, only the title can change"
+            ),
+        )
     if new_difficulty and new_difficulty != maze.difficulty:
         _carve(maze, new_difficulty, maze_lib.new_seed())
     db.commit()
