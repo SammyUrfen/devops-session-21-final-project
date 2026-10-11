@@ -251,7 +251,7 @@ The smallest possible move count is `solution_length - 1`.
   "id": 7,
   "maze_id": 1,
   "maze_title": "Hedge",
-  "player": "bibek",
+  "player": "nova",
   "moves": 58,
   "seconds": 42,
   "completed_at": "2026-10-12T09:20:44.102Z"
@@ -290,3 +290,82 @@ The smallest possible move count is `solution_length - 1`.
    declaration order. Keep that order.
 6. `/api/mazes` includes the full `grid` for each maze. A HARD gallery page is therefore a few hundred
    kilobytes. That is accepted for a 20x20 grid and a small gallery.
+
+---
+
+## 11. Community mazes, drawn by hand (contract change, 12 October)
+
+The user asked for an interactive drawer. A person draws the walls. The server never generates that
+grid. Drawn mazes stay out of the EASY, MEDIUM and HARD lists. They live in their own list.
+
+### Model change
+
+| Change | Detail |
+|---|---|
+| New column `mazes.source` | `GENERATED` or `COMMUNITY`. Default `GENERATED`. Not null. |
+| `mazes.seed` becomes nullable | A drawn maze has no seed. The grid is the only source of truth. |
+| `mazes.difficulty` for a drawn maze | The server derives it from the path length. See the table below. |
+| Migration | A second migration, `0002_add_maze_source`. Keep `0001` as it is. |
+
+Derived label for a drawn maze, from `solution_length`:
+
+| Path length | Label |
+|---|---|
+| under 20 | `EASY` |
+| 20 to 44 | `MEDIUM` |
+| 45 and above | `HARD` |
+
+The label is a badge only. The generated lists filter on `source=GENERATED`, so a drawn maze never
+appears beside a generated one.
+
+### New and changed routes
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| POST | `/api/mazes/community` | `{title, author?, width, height, grid}` | 201 Maze with `source=COMMUNITY` |
+| GET | `/api/mazes` | — | Gains the query `source=GENERATED\|COMMUNITY`. No value means both. |
+| GET | `/api/mazes/stats` | — | Gains `by_source: {GENERATED, COMMUNITY}` |
+
+`PUT /api/mazes/{id}` on a drawn maze changes the title only. A `difficulty` value returns 422,
+because the server must not replace a grid that a person drew.
+
+### The structural guard (server side, 422 with a named reason)
+
+A drawn grid is rejected unless every check passes. Each check returns its own message.
+
+1. `width` and `height` are between 4 and 20, and the grid matches them exactly.
+2. Every value is an integer from 0 to 15.
+3. The outer border is closed: the top row has the N bit, the bottom row the S bit, and so for E and W.
+4. Neighbours agree: the E bit of `(x, y)` equals the W bit of `(x + 1, y)`. The same holds for N and S.
+5. A path exists from `(0, 0)` to `(width - 1, height - 1)`. The breadth-first search proves it and
+   gives `solution_length`.
+
+Check 4 is the one a drawing tool breaks most often. The client keeps both sides in step, and the
+server never trusts it.
+
+### Frontend
+
+- A new "Draw" view. A canvas shows a grid of cells, every wall closed at the start.
+- A click near a cell edge toggles that wall. The tool toggles the neighbour side as well, so check 4
+  always passes.
+- A size control: 8x8, 12x12 or 16x16.
+- A "Check" button runs the same breadth-first search in the browser and reports solvable or not, with
+  the path length. The check is local, so it is instant. The server repeats it anyway.
+- "Clear" closes every wall again. "Publish" sends the grid.
+- The gallery gets two tabs: "Generated" and "Community". The difficulty chips apply to the first tab.
+
+### Tests to add
+
+Backend, each one its own case: a good drawn maze is accepted, a wall that two cells disagree on is
+rejected, an open border is rejected, an unsolvable grid is rejected, a value above 15 is rejected,
+a size outside the range is rejected, the derived label matches the path length, and `PUT` with a
+difficulty on a drawn maze returns 422.
+
+Frontend `node --test`: a toggle changes both sides of the wall, a toggle twice returns the start
+state, and the local search agrees with a known small grid.
+
+### No personal name in the app
+
+The app shows no personal name. The player-name field uses a neutral placeholder. The author field
+defaults to the stored player name, or to `anonymous`. The GHCR image path keeps the account name
+`sammyurfen`, because that is the registry namespace, not app text.
