@@ -1,20 +1,21 @@
-# Slim kube-prometheus-stack for a 4 GB minikube node.
+# Slim kube-prometheus-stack for the 3 GiB minikube node (s21).
+# The node holds the app, Postgres, the ingress controller and this stack together, so every
+# component that the rubric does not need is off and every limit is as low as it will start with.
 prometheus:
   prometheusSpec:
-    retention: 6h
+    # 2h of samples is plenty for a demo and keeps the head block small on a 3 GiB node.
+    retention: 2h
     scrapeInterval: 15s
     evaluationInterval: 15s
     # pick up ServiceMonitors / PrometheusRules from any namespace, not only Helm-labelled ones
     serviceMonitorSelectorNilUsesHelmValues: false
     ruleSelectorNilUsesHelmValues: false
     resources:
-      requests: {cpu: 100m, memory: 256Mi}
-      limits: {memory: 768Mi}
-alertmanager:
-  alertmanagerSpec:
-    resources:
-      requests: {cpu: 10m, memory: 32Mi}
-      limits: {memory: 64Mi}
+      requests: {cpu: 100m, memory: 192Mi}
+      limits: {memory: 420Mi}
+# No Alertmanager: the PrometheusRule still loads and still evaluates, and the Alerts page in
+# Prometheus proves it. Routing a notification is outside Module 9.
+alertmanager: {enabled: false}
 grafana:
   adminPassword: demo-password-not-real
   persistence: {enabled: false}
@@ -26,14 +27,10 @@ prometheusOperator:
   resources:
     requests: {cpu: 50m, memory: 64Mi}
     limits: {memory: 128Mi}
-kube-state-metrics:
-  resources:
-    requests: {cpu: 10m, memory: 32Mi}
-    limits: {memory: 128Mi}
-prometheus-node-exporter:
-  resources:
-    requests: {cpu: 10m, memory: 16Mi}
-    limits: {memory: 64Mi}
+# Off on this node. The dashboard reads application metrics from the backend and container memory
+# from the kubelet's own cAdvisor endpoint, so neither exporter is needed for Module 9.
+kubeStateMetrics: {enabled: false}
+nodeExporter: {enabled: false}
 # minikube does not expose these control-plane endpoints; scraping them only creates failing targets
 kubeEtcd: {enabled: false}
 kubeControllerManager: {enabled: false}

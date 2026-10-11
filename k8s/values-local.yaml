@@ -1,0 +1,14 @@
+# Local minikube run only. The images are built straight into the cluster's docker daemon
+# (eval $(minikube -p s21 docker-env)), so there is no registry to pull them from.
+# The CI path instead uses ghcr.io/sammyurfen/mazehub-* tagged with the commit SHA.
+backend:
+  image: mazehub-backend
+  tag: dev
+frontend:
+  image: mazehub-frontend
+  tag: dev
+# Never: the tag exists only in the node's own daemon. Any pull attempt would fail.
+imagePullPolicy: Never
+config:
+  environment: minikube
+  banner: "Find your way out"

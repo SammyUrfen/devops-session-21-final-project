@@ -4,9 +4,10 @@ metadata:
   name: mazehub-backend
   labels: {{- include "mazehub.labels" . | nindent 4 }}
 spec:
-  {{- if not .Values.hpa.enabled }}
+  # Set even when the HPA owns scaling. Omitting it let a fresh install start at the Kubernetes
+  # default of one pod, and the HPA only added the second one 30 s later. Keep
+  # backend.replicas equal to hpa.minReplicas so an upgrade never shrinks past the HPA floor.
   replicas: {{ .Values.backend.replicas }}
-  {{- end }}
   selector: {matchLabels: {app: backend}}
   template:
     metadata:
