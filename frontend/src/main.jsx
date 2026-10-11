@@ -1,129 +1,533 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
+import { DIRECTIONS, canMove, step, wallsOf } from './maze.js';
 
+// Same-origin base path. Nginx (compose) and the Ingress (Kubernetes) both route /api
+// to the backend, so the host must never appear here.
 const API = '/api';
-const NEXT = { OPEN: 'INVESTIGATING', INVESTIGATING: 'RESOLVED', RESOLVED: 'OPEN' };
-const FILTERS = ['ALL', 'OPEN', 'INVESTIGATING', 'RESOLVED'];
+
+const PLAYER_KEY = 'mazehub.player';
+const DIFFICULTIES = ['EASY', 'MEDIUM', 'HARD'];
+const FILTERS = ['All', ...DIFFICULTIES];
+
+// Arrow keys and WASD both move one cell. event.key is lower-cased before lookup.
+const KEY_TO_DIRECTION = {
+  arrowup: 'N', w: 'N',
+  arrowright: 'E', d: 'E',
+  arrowdown: 'S', s: 'S',
+  arrowleft: 'W', a: 'W',
+};
+
+/** Read a JSON body, or throw a message the UI can show. */
+async function request(path, options) {
+  let res;
+  try {
+    res = await fetch(`${API}${path}`, options);
+  } catch {
+    throw new Error('The backend did not answer');
+  }
+  if (!res.ok) throw new Error(await errorMessage(res));
+  return res.status === 204 ? null : res.json();
+}
+
+/** FastAPI returns {detail: string} or {detail: [{msg}]}. Flatten either into one line. */
+async function errorMessage(res) {
+  let detail;
+  try {
+    detail = (await res.json()).detail;
+  } catch {
+    detail = null;
+  }
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) return detail.map((d) => d.msg || JSON.stringify(d)).join('; ');
+  return `Request failed with status ${res.status}`;
+}
+
+function jsonPost(method, body) {
+  return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+}
 
 function App() {
-  const [incidents, setIncidents] = useState([]);
-  const [stats, setStats] = useState({ total: 0, open: 0, investigating: 0, resolved: 0, sev1Open: 0 });
-  const [cfg, setCfg] = useState({ environment: '', banner: '' });
-  const [filter, setFilter] = useState('ALL');
-  const [showForm, setShowForm] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [player, setPlayer] = useState(() => localStorage.getItem(PLAYER_KEY) || '');
+  const [view, setView] = useState('gallery');
+  const [playing, setPlaying] = useState(null); // the maze id open in the play view
 
-  const load = async () => {
-    try {
-      setError('');
-      const [a, b, c] = await Promise.all([fetch(`${API}/incidents`), fetch(`${API}/incidents/stats`), fetch(`${API}/config`)]);
-      if (!a.ok || !b.ok || !c.ok) throw Error('Backend unavailable');
-      setIncidents(await a.json());
-      setStats(await b.json());
-      setCfg(await c.json());
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-  useEffect(() => { load(); }, []);
-
-  const advance = async (i) => {
-    await fetch(`${API}/incidents/${i.id}`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: NEXT[i.status] }),
-    });
-    load();
+  const savePlayer = (name) => {
+    localStorage.setItem(PLAYER_KEY, name);
+    setPlayer(name);
   };
 
-  const create = async (e) => {
-    e.preventDefault();
-    const form = e.currentTarget;
-    const f = new FormData(form);
-    await fetch(`${API}/incidents`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(Object.fromEntries(['title', 'service', 'severity', 'owner', 'description'].map((k) => [k, f.get(k)]))),
-    });
-    form.reset();
-    setShowForm(false);
-    load();
-  };
+  if (!player) return <NameGate onSave={savePlayer} />;
 
-  const visible = filter === 'ALL' ? incidents : incidents.filter((i) => i.status === filter);
+  const open = (id) => { setPlaying(id); setView('play'); };
+  const backToGallery = () => { setPlaying(null); setView('gallery'); };
 
   return (
     <div className="app">
       <aside className="sidebar">
-        <div className="brand"><span className="brand-mark">I</span><div><b>IncidentBoard</b><small>{cfg.environment || '...'}</small></div></div>
-        <nav><a className="active">▦ <span>Incidents</span></a></nav>
-        <div className="side-bottom"><div className="upgrade"><strong>On-call</strong><p>Track an outage from first alert to resolution.</p></div></div>
+        <div className="brand">
+          <span className="brand-mark">◼</span>
+          <div><b>MazeHub</b><small>maze gallery</small></div>
+        </div>
+        <nav>
+          <a className={view === 'gallery' || view === 'play' ? 'active' : ''} onClick={backToGallery}>▦ <span>Gallery</span></a>
+          <a className={view === 'publish' ? 'active' : ''} onClick={() => setView('publish')}>＋ <span>Publish</span></a>
+          <a className={view === 'completed' ? 'active' : ''} onClick={() => setView('completed')}>✓ <span>Completed</span></a>
+        </nav>
+        <div className="side-bottom">
+          <div className="upgrade">
+            <strong>How to play</strong>
+            <p>Start at the top left. Walk to the bottom right with the arrow keys or WASD.</p>
+          </div>
+          <div className="profile">
+            <span className="avatar">{player.slice(0, 2).toUpperCase()}</span>
+            <div><b>{player}</b><small>stored in this browser</small></div>
+            <button className="icon-btn" title="Change name" onClick={() => savePlayer('')}>✎</button>
+          </div>
+        </div>
       </aside>
       <main className="main">
-        <header>
-          <div><p className="eyebrow">ON-CALL / OVERVIEW</p><h1>{cfg.banner || 'IncidentBoard'}</h1><p className="muted">Open incidents across all services.</p></div>
-          <button className="primary" onClick={() => setShowForm(true)}>＋ Declare incident</button>
-        </header>
-        {error && <div className="alert">⚠ {error}. Check the backend and PostgreSQL, then refresh.</div>}
-        <section className="stats">
-          <Stat label="Total" value={stats.total} icon="▦" />
-          <Stat label="Open" value={stats.open} icon="○" />
-          <Stat label="Investigating" value={stats.investigating} icon="◔" />
-          <Stat label="Open SEV1" value={stats.sev1Open} icon="!" />
-        </section>
-        <section className="content-grid">
-          <div className="panel tasks-panel">
-            <div className="panel-head">
-              <div><h2>Incidents</h2><p className="muted">Click ↻ to move an incident to its next state.</p></div>
-              <div className="filters">{FILTERS.map((x) => <button key={x} className={filter === x ? 'selected' : ''} onClick={() => setFilter(x)}>{x}</button>)}</div>
-            </div>
-            {loading ? <div className="empty">Loading incidents…</div> : (
-              <div className="table-wrap">
-                <table>
-                  <thead><tr><th>Incident</th><th>Service</th><th>Owner</th><th>Severity</th><th>Status</th><th></th></tr></thead>
-                  <tbody>{visible.map((i) => (
-                    <tr key={i.id}>
-                      <td><div className="task-title"><span className={`dot ${i.status.toLowerCase()}`}></span><div><b>{i.title}</b><small>{i.description}</small></div></div></td>
-                      <td>{i.service}</td>
-                      <td>{i.owner}</td>
-                      <td><span className={`priority ${i.severity.toLowerCase()}`}>{i.severity}</span></td>
-                      <td><span className={`status ${i.status.toLowerCase()}`}>{i.status}</span></td>
-                      <td><button className="icon-btn" onClick={() => advance(i)} title="Next state">↻</button></td>
-                    </tr>
-                  ))}</tbody>
-                </table>
-                {!visible.length && <div className="empty">No incidents in this filter.</div>}
-              </div>
-            )}
-          </div>
-          <aside className="panel activity">
-            <div className="panel-head"><div><h2>Delivery pipeline</h2><p className="muted">How this page reached the cluster.</p></div></div>
-            <div className="pipeline"><span>Test</span><i></i><span>Scan</span><i></i><span>GHCR</span><i></i><span>Argo CD</span></div>
-          </aside>
-        </section>
-        {showForm && (
-          <div className="modal-backdrop">
-            <form className="modal" onSubmit={create}>
-              <div className="modal-head"><div><p className="eyebrow">DECLARE INCIDENT</p><h2>What is broken?</h2></div><button type="button" className="close" onClick={() => setShowForm(false)}>×</button></div>
-              <label>Title<input name="title" required placeholder="e.g. Checkout returns 500" /></label>
-              <label>Description<textarea name="description" placeholder="Symptom, first alert, impact" /></label>
-              <div className="form-row">
-                <label>Service<input name="service" defaultValue="checkout" /></label>
-                <label>Severity<select name="severity"><option>SEV1</option><option>SEV2</option><option>SEV3</option></select></label>
-              </div>
-              <label>Owner<input name="owner" defaultValue="Bibek" /></label>
-              <button className="primary full">Declare</button>
-            </form>
-          </div>
-        )}
+        {view === 'gallery' && <Gallery onPlay={open} onPublish={() => setView('publish')} />}
+        {view === 'play' && <Play mazeId={playing} player={player} onExit={backToGallery} />}
+        {view === 'publish' && <Publish author={player} onDone={backToGallery} />}
+        {view === 'completed' && <Completed player={player} />}
       </main>
     </div>
   );
 }
 
-function Stat({ label, value, icon }) {
-  return <div className="stat"><div className="stat-icon">{icon}</div><div><small>{label}</small><strong>{value}</strong></div></div>;
+function NameGate({ onSave }) {
+  return (
+    <div className="gate">
+      <form
+        className="modal"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const name = new FormData(e.currentTarget).get('player').trim();
+          if (name) onSave(name);
+        }}
+      >
+        <div className="modal-head">
+          <div><p className="eyebrow">MAZEHUB</p><h2>What should we call you?</h2></div>
+        </div>
+        <p className="muted">No sign in. The name stays in this browser and labels the mazes you solve.</p>
+        <label>Player name<input name="player" required autoFocus maxLength={40} placeholder="e.g. Bibek" /></label>
+        <button className="primary full">Start</button>
+      </form>
+    </div>
+  );
+}
+
+function Gallery({ onPlay, onPublish }) {
+  const [mazes, setMazes] = useState([]);
+  const [stats, setStats] = useState(null);
+  const [filter, setFilter] = useState('All');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const query = filter === 'All' ? '' : `?difficulty=${filter}`;
+      const [list, counts] = await Promise.all([request(`/mazes${query}`), request('/mazes/stats')]);
+      setMazes(list);
+      setStats(counts);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [filter]);
+  useEffect(() => { load(); }, [load]);
+
+  const remove = async (maze) => {
+    if (!confirm(`Delete "${maze.title}" and its completions?`)) return;
+    try {
+      await request(`/mazes/${maze.id}`, { method: 'DELETE' });
+      load();
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  return (
+    <>
+      <header>
+        <div>
+          <p className="eyebrow">MAZEHUB / GALLERY</p>
+          <h1>Pick a maze</h1>
+          <p className="muted">Every grid is generated and checked on the server before it is published.</p>
+        </div>
+        <button className="primary" onClick={onPublish}>＋ Publish a maze</button>
+      </header>
+      {error && <ErrorBanner message={error} onRetry={load} />}
+      {/* The stats shape is the server's. Render a card per key so a new counter needs no change here. */}
+      <section className="stats">
+        {stats
+          ? Object.entries(stats).map(([key, value]) => <Stat key={key} label={key.replace(/_/g, ' ')} value={value} />)
+          : <div className="empty">Loading counts…</div>}
+      </section>
+      <section className="panel">
+        <div className="panel-head">
+          <div><h2>Mazes</h2><p className="muted">Shortest path is the fewest moves the server will accept.</p></div>
+          <div className="filters">
+            {FILTERS.map((f) => (
+              <button key={f} className={filter === f ? 'selected' : ''} onClick={() => setFilter(f)}>{f}</button>
+            ))}
+          </div>
+        </div>
+        {loading ? <div className="empty">Loading mazes…</div> : (
+          <div className="cards">
+            {mazes.map((m) => (
+              <article className="maze-card" key={m.id}>
+                <div className="maze-card-top">
+                  <b>{m.title}</b>
+                  <span className={`priority ${m.difficulty.toLowerCase()}`}>{m.difficulty}</span>
+                </div>
+                <small>by {m.author}</small>
+                <dl className="facts">
+                  <div><dt>Size</dt><dd>{m.width}×{m.height}</dd></div>
+                  <div><dt>Shortest path</dt><dd>{m.solution_length}</dd></div>
+                  <div><dt>Completions</dt><dd>{m.completion_count}</dd></div>
+                </dl>
+                <div className="card-actions">
+                  <button className="primary" onClick={() => onPlay(m.id)}>▶ Play</button>
+                  <button className="ghost" onClick={() => remove(m)}>Delete</button>
+                </div>
+              </article>
+            ))}
+            {!mazes.length && !error && <div className="empty">No mazes in this filter yet. Publish one.</div>}
+          </div>
+        )}
+      </section>
+    </>
+  );
+}
+
+function Play({ mazeId, player, onExit }) {
+  const [maze, setMaze] = useState(null);
+  const [error, setError] = useState('');
+  const [at, setAt] = useState({ x: 0, y: 0 });
+  const [moves, setMoves] = useState(0);
+  const [seconds, setSeconds] = useState(0);
+  const [solution, setSolution] = useState(null);
+  const [result, setResult] = useState(null); // the saved completion, or an error message
+  const canvasRef = useRef(null);
+  const boardRef = useRef(null);
+
+  const finished = result !== null;
+  const exit = maze ? { x: maze.width - 1, y: maze.height - 1 } : null;
+
+  useEffect(() => {
+    let live = true;
+    request(`/mazes/${mazeId}`)
+      .then((m) => { if (live) setMaze(m); })
+      .catch((e) => { if (live) setError(e.message); });
+    return () => { live = false; };
+  }, [mazeId]);
+
+  // The timer starts with the maze and stops as soon as a run is recorded.
+  useEffect(() => {
+    if (!maze || finished) return undefined;
+    const id = setInterval(() => setSeconds((s) => s + 1), 1000);
+    return () => clearInterval(id);
+  }, [maze, finished]);
+
+  const submit = useCallback(async (totalMoves, totalSeconds) => {
+    try {
+      const completion = await request(`/mazes/${mazeId}/completions`, jsonPost('POST', {
+        player, moves: totalMoves, seconds: totalSeconds,
+      }));
+      setResult({ completion });
+    } catch (e) {
+      // A run below solution_length comes back 422. Show the server's own words.
+      setResult({ message: e.message });
+    }
+  }, [mazeId, player]);
+
+  // Reads the live state instead of nesting state updaters: React StrictMode calls an
+  // updater twice, which would count every move and every completion twice.
+  const move = useCallback((dir) => {
+    if (!maze || finished) return;
+    if (!canMove(maze.grid, at.x, at.y, dir)) return;
+    const next = step(at.x, at.y, dir);
+    const total = moves + 1;
+    setAt(next);
+    setMoves(total);
+    if (next.x === exit.x && next.y === exit.y) submit(total, seconds);
+  }, [maze, finished, at, moves, seconds, exit, submit]);
+
+  // The board div holds focus, so the arrow keys scroll nothing.
+  useEffect(() => { boardRef.current?.focus(); }, [maze]);
+
+  const onKeyDown = (e) => {
+    const dir = KEY_TO_DIRECTION[e.key.toLowerCase()];
+    if (!dir) return;
+    e.preventDefault();
+    move(dir);
+  };
+
+  const showSolution = async () => {
+    try {
+      const data = await request(`/mazes/${mazeId}/solution`);
+      setSolution(normalisePath(data.path));
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  useEffect(() => { draw(canvasRef.current, maze, at, solution); }, [maze, at, solution]);
+
+  if (error) return <><PlayHeader onExit={onExit} /><ErrorBanner message={error} /></>;
+  if (!maze) return <><PlayHeader onExit={onExit} /><div className="empty">Loading the maze…</div></>;
+
+  return (
+    <>
+      <PlayHeader maze={maze} onExit={onExit} />
+      <section className="stats">
+        <Stat label="moves" value={moves} />
+        <Stat label="seconds" value={seconds} />
+        <Stat label="shortest path" value={maze.solution_length} />
+        <Stat label="completions" value={maze.completion_count} />
+      </section>
+      <section className="panel play-panel">
+        <div className="panel-head">
+          <div>
+            <h2>{maze.title}</h2>
+            <p className="muted">Entrance is the top left square. The exit is marked at the bottom right.</p>
+          </div>
+          <div className="card-actions">
+            <button className="ghost" onClick={showSolution}>Show solution</button>
+            <button className="ghost" onClick={() => boardRef.current?.focus()}>Focus board</button>
+          </div>
+        </div>
+        <div className="board" ref={boardRef} tabIndex={0} onKeyDown={onKeyDown}>
+          <canvas ref={canvasRef} />
+        </div>
+        <p className="hint">Keys: ↑ ↓ ← → or W A S D move one square. Click the board first if the keys do nothing.</p>
+        {finished && (
+          result.completion ? (
+            <div className="result ok">
+              <b>Solved.</b> {result.completion.moves} moves in {result.completion.seconds} seconds, saved for {result.completion.player}.
+              <button className="primary" onClick={onExit}>Back to the gallery</button>
+            </div>
+          ) : (
+            <div className="result bad">
+              <b>The server refused the run.</b> {result.message}
+              <button className="primary" onClick={onExit}>Back to the gallery</button>
+            </div>
+          )
+        )}
+      </section>
+    </>
+  );
+}
+
+function PlayHeader({ maze, onExit }) {
+  return (
+    <header>
+      <div>
+        <p className="eyebrow">MAZEHUB / PLAY</p>
+        <h1>{maze ? `${maze.width}×${maze.height} ${maze.difficulty}` : 'Play'}</h1>
+        <p className="muted">{maze ? `by ${maze.author}` : 'Fetching the grid.'}</p>
+      </div>
+      <button className="ghost" onClick={onExit}>← Gallery</button>
+    </header>
+  );
+}
+
+/** The solution route may arrive as [[x,y],…] or [{x,y},…]. Accept both. */
+function normalisePath(path) {
+  if (!Array.isArray(path)) return [];
+  return path.map((p) => (Array.isArray(p) ? { x: p[0], y: p[1] } : { x: p.x, y: p.y }));
+}
+
+const CELL_PIXELS = 26; // one maze cell on screen; 20x20 HARD then fits 520px
+const WALL_PIXELS = 2;
+
+function draw(canvas, maze, at, solution) {
+  if (!canvas || !maze) return;
+  const ratio = window.devicePixelRatio || 1;
+  const w = maze.width * CELL_PIXELS;
+  const h = maze.height * CELL_PIXELS;
+  canvas.width = w * ratio;
+  canvas.height = h * ratio;
+  canvas.style.width = `${w}px`;
+  canvas.style.height = `${h}px`;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  const style = getComputedStyle(canvas);
+  const colour = (name, fallback) => style.getPropertyValue(name).trim() || fallback;
+
+  ctx.fillStyle = colour('--board', '#12161f');
+  ctx.fillRect(0, 0, w, h);
+
+  // Exit cell, so the goal is visible before the player reaches it.
+  ctx.fillStyle = colour('--exit', '#3f8f6a');
+  ctx.fillRect((maze.width - 1) * CELL_PIXELS + 3, (maze.height - 1) * CELL_PIXELS + 3, CELL_PIXELS - 6, CELL_PIXELS - 6);
+
+  if (solution?.length) {
+    ctx.strokeStyle = colour('--accent', '#e0a44c');
+    ctx.lineWidth = 3;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    solution.forEach((p, i) => {
+      const cx = p.x * CELL_PIXELS + CELL_PIXELS / 2;
+      const cy = p.y * CELL_PIXELS + CELL_PIXELS / 2;
+      if (i === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
+    });
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = colour('--wall', '#8d97ab');
+  ctx.lineWidth = WALL_PIXELS;
+  ctx.lineCap = 'square';
+  ctx.beginPath();
+  for (let y = 0; y < maze.height; y += 1) {
+    for (let x = 0; x < maze.width; x += 1) {
+      const walls = wallsOf(maze.grid[y][x]);
+      const left = x * CELL_PIXELS;
+      const top = y * CELL_PIXELS;
+      const right = left + CELL_PIXELS;
+      const bottom = top + CELL_PIXELS;
+      if (walls.n) { ctx.moveTo(left, top); ctx.lineTo(right, top); }
+      if (walls.e) { ctx.moveTo(right, top); ctx.lineTo(right, bottom); }
+      if (walls.s) { ctx.moveTo(left, bottom); ctx.lineTo(right, bottom); }
+      if (walls.w) { ctx.moveTo(left, top); ctx.lineTo(left, bottom); }
+    }
+  }
+  ctx.stroke();
+
+  ctx.fillStyle = colour('--player', '#f0c070');
+  ctx.beginPath();
+  ctx.arc(at.x * CELL_PIXELS + CELL_PIXELS / 2, at.y * CELL_PIXELS + CELL_PIXELS / 2, CELL_PIXELS / 2 - 6, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function Publish({ author, onDone }) {
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const create = async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    setBusy(true);
+    setError('');
+    try {
+      await request('/mazes', jsonPost('POST', {
+        title: f.get('title'), author: f.get('author'), difficulty: f.get('difficulty'),
+      }));
+      onDone();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <header>
+        <div>
+          <p className="eyebrow">MAZEHUB / PUBLISH</p>
+          <h1>Publish a maze</h1>
+          <p className="muted">The server carves the grid, checks it has a path and stores the shortest length.</p>
+        </div>
+        <button className="ghost" onClick={onDone}>← Gallery</button>
+      </header>
+      {error && <ErrorBanner message={error} />}
+      <section className="panel form-panel">
+        <form onSubmit={create}>
+          <label>Title<input name="title" required maxLength={80} placeholder="e.g. Lantern Loop" /></label>
+          <div className="form-row">
+            <label>Author<input name="author" required defaultValue={author} maxLength={40} /></label>
+            <label>Difficulty
+              <select name="difficulty" defaultValue="EASY">
+                {DIFFICULTIES.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </label>
+          </div>
+          <p className="muted">EASY is 8×8, MEDIUM is 14×14, HARD is 20×20.</p>
+          <button className="primary full" disabled={busy}>{busy ? 'Generating…' : 'Publish'}</button>
+        </form>
+      </section>
+    </>
+  );
+}
+
+function Completed({ player }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const load = useCallback(() => {
+    setLoading(true);
+    setError('');
+    request(`/completions?player=${encodeURIComponent(player)}`)
+      .then(setRows)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [player]);
+  useEffect(() => { load(); }, [load]);
+
+  const newestFirst = useMemo(
+    () => [...rows].sort((a, b) => String(b.completed_at).localeCompare(String(a.completed_at))),
+    [rows],
+  );
+
+  return (
+    <>
+      <header>
+        <div>
+          <p className="eyebrow">MAZEHUB / COMPLETED</p>
+          <h1>Your solved mazes</h1>
+          <p className="muted">Runs recorded for {player}, newest first.</p>
+        </div>
+        <button className="ghost" onClick={load}>↻ Refresh</button>
+      </header>
+      {error && <ErrorBanner message={error} onRetry={load} />}
+      <section className="panel">
+        {loading ? <div className="empty">Loading your runs…</div> : (
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Maze</th><th>Moves</th><th>Seconds</th><th>Completed</th></tr></thead>
+              <tbody>
+                {newestFirst.map((c) => (
+                  <tr key={c.id}>
+                    <td><b>{c.maze_title}</b></td>
+                    <td>{c.moves}</td>
+                    <td>{c.seconds}</td>
+                    <td>{String(c.completed_at).replace('T', ' ').slice(0, 19)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!newestFirst.length && !error && <div className="empty">No runs yet. Solve a maze from the gallery.</div>}
+          </div>
+        )}
+      </section>
+    </>
+  );
+}
+
+function Stat({ label, value }) {
+  return (
+    <div className="stat">
+      <div className="stat-icon">▦</div>
+      <div><small>{label}</small><strong>{typeof value === 'number' ? value : String(value)}</strong></div>
+    </div>
+  );
+}
+
+function ErrorBanner({ message, onRetry }) {
+  return (
+    <div className="alert">
+      ⚠ {message}. The backend or PostgreSQL may be down.
+      {onRetry && <button className="ghost" onClick={onRetry}>Try again</button>}
+    </div>
+  );
 }
 
 createRoot(document.getElementById('root')).render(<App />);
