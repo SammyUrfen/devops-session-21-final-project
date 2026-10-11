@@ -2,10 +2,10 @@
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: incidentboard-backend
+  name: mazehub-backend
   labels: {{- include "ib.labels" . | nindent 4 }}
 spec:
-  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: incidentboard-backend}
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: mazehub-backend}
   minReplicas: {{ .Values.hpa.minReplicas }}
   maxReplicas: {{ .Values.hpa.maxReplicas }}
   metrics:

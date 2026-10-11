@@ -13,8 +13,8 @@ permissions:
   contents: read
 
 env:
-  BACKEND_IMAGE: ghcr.io/sammyurfen/incidentboard-backend
-  FRONTEND_IMAGE: ghcr.io/sammyurfen/incidentboard-frontend
+  BACKEND_IMAGE: ghcr.io/sammyurfen/mazehub-backend
+  FRONTEND_IMAGE: ghcr.io/sammyurfen/mazehub-frontend
 
 jobs:
   test:
@@ -23,18 +23,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: {python-version: "3.12", cache: pip, cache-dependency-path: application/backend/requirements-dev.txt}
+        with: {python-version: "3.12", cache: pip, cache-dependency-path: backend/requirements-dev.txt}
       - run: pip install -r requirements-dev.txt
-        working-directory: application/backend
+        working-directory: backend
       - run: pytest -v
-        working-directory: application/backend
+        working-directory: backend
       - uses: actions/setup-node@v4
-        with: {node-version: "22", cache: npm, cache-dependency-path: application/frontend/package-lock.json}
+        with: {node-version: "22", cache: npm, cache-dependency-path: frontend/package-lock.json}
       - name: Build frontend
         run: npm ci && npm run build
-        working-directory: application/frontend
+        working-directory: frontend
       - name: Lint Helm chart
-        run: helm lint helm/incidentboard
+        run: helm lint helm/mazehub
 
   sast:
     name: 2. SAST (Bandit)
@@ -45,9 +45,9 @@ jobs:
         with: {python-version: "3.12"}
       - run: pip install bandit==1.9.4
       - name: Full report (all severities, never fails)
-        run: bandit -r application/backend/app --exit-zero
+        run: bandit -r backend/app --exit-zero
       - name: Gate - fail on MEDIUM or higher
-        run: bandit -r application/backend/app --severity-level medium
+        run: bandit -r backend/app --severity-level medium
 
   sca:
     name: 3. SCA (pip-audit + npm audit)
@@ -58,10 +58,10 @@ jobs:
         with: {python-version: "3.12"}
       - run: pip install pip-audit
       - name: pip-audit (fails on any known vulnerability)
-        run: pip-audit -r application/backend/requirements-dev.txt
+        run: pip-audit -r backend/requirements-dev.txt
       - name: npm audit (fails on high or critical)
         run: npm audit --audit-level=high
-        working-directory: application/frontend
+        working-directory: frontend
 
   secrets:
     name: 4. Secret scan (gitleaks)
@@ -83,8 +83,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Docker build (tag = commit SHA)
         run: |
-          docker build -f docker/backend.Dockerfile -t $BACKEND_IMAGE:${{ github.sha }} application/backend
-          docker build -f docker/frontend.Dockerfile -t $FRONTEND_IMAGE:${{ github.sha }} application/frontend
+          docker build -f backend/Dockerfile -t $BACKEND_IMAGE:${{ github.sha }} backend
+          docker build -f frontend/Dockerfile -t $FRONTEND_IMAGE:${{ github.sha }} frontend
       - name: Install Trivy (official apt repository)
         run: |
           curl -fsSL https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
@@ -121,21 +121,21 @@ jobs:
         with: {cluster_name: s21}
       - name: GHCR pull secret (packages are private by default)
         run: |
-          kubectl create namespace incidentboard
-          kubectl -n incidentboard create secret docker-registry ghcr-pull --docker-server=ghcr.io \
+          kubectl create namespace mazehub
+          kubectl -n mazehub create secret docker-registry ghcr-pull --docker-server=ghcr.io \
             --docker-username=${{ github.actor }} --docker-password=${{ secrets.GITHUB_TOKEN }}
       - name: helm upgrade --install with the images from this run
         run: |
-          helm upgrade --install incidentboard helm/incidentboard -n incidentboard \
+          helm upgrade --install mazehub helm/mazehub -n mazehub \
             --set backend.tag=${{ github.sha }} --set frontend.tag=${{ github.sha }} \
             --set 'imagePullSecrets[0].name=ghcr-pull' \
             --set monitoring.enabled=false --set ingress.enabled=false --set hpa.enabled=false \
             --wait --timeout 5m
-          kubectl -n incidentboard get deploy,pods,svc,pvc -o wide
+          kubectl -n mazehub get deploy,pods,svc,pvc -o wide
       - name: Smoke test through the Services
         run: |
-          kubectl -n incidentboard run smoke --rm -i --restart=Never --image=curlimages/curl -- \
-            sh -c 'curl -sf incidentboard-backend:8000/ready && echo && curl -sf incidentboard-frontend/api/incidents/stats'
+          kubectl -n mazehub run smoke --rm -i --restart=Never --image=curlimages/curl -- \
+            sh -c 'curl -sf mazehub-backend:8000/ready && echo && curl -sf mazehub-frontend/api/mazes/stats'
       - name: Debug on failure
         if: failure()
-        run: kubectl -n incidentboard describe pods; kubectl -n incidentboard get events --sort-by=.lastTimestamp
+        run: kubectl -n mazehub describe pods; kubectl -n mazehub get events --sort-by=.lastTimestamp

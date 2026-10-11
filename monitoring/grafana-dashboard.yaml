@@ -2,24 +2,24 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: incidentboard-dashboard
+  name: mazehub-dashboard
   namespace: monitoring
   labels: {grafana_dashboard: "1"}
 data:
-  incidentboard.json: |
+  mazehub.json: |
     {
-      "title": "IncidentBoard",
-      "uid": "incidentboard",
+      "title": "MazeHub",
+      "uid": "mazehub",
       "schemaVersion": 39,
       "time": {"from": "now-30m", "to": "now"},
       "panels": [
         {"type": "timeseries", "title": "Requests per second by handler", "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
-         "targets": [{"expr": "sum by (handler) (rate(http_requests_total{job=\"incidentboard-backend\"}[1m]))", "legendFormat": "{{handler}}"}]},
+         "targets": [{"expr": "sum by (handler) (rate(http_requests_total{job=\"mazehub-backend\"}[1m]))", "legendFormat": "{{handler}}"}]},
         {"type": "timeseries", "title": "p95 latency (s)", "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
-         "targets": [{"expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"incidentboard-backend\"}[2m])))"}]},
+         "targets": [{"expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"mazehub-backend\"}[2m])))"}]},
         {"type": "timeseries", "title": "Pod memory (MiB)", "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
-         "targets": [{"expr": "max by (pod) (container_memory_working_set_bytes{namespace=\"incidentboard\",pod!=\"\"}) / 1024 / 1024", "legendFormat": "{{pod}}"}]},
+         "targets": [{"expr": "max by (pod) (container_memory_working_set_bytes{namespace=\"mazehub\",pod!=\"\"}) / 1024 / 1024", "legendFormat": "{{pod}}"}]},
         {"type": "stat", "title": "Backend targets up", "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
-         "targets": [{"expr": "sum(up{job=\"incidentboard-backend\"})"}]}
+         "targets": [{"expr": "sum(up{job=\"mazehub-backend\"})"}]}
       ]
     }

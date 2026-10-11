@@ -1,4 +1,4 @@
-# Build context: application/backend
+# Build context: backend
 # Alpine instead of Debian slim: far fewer OS packages, so far fewer unfixed HIGH CVEs (lesson from session 17).
 FROM python:3.12-alpine
 

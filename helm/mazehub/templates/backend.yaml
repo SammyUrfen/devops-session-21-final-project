@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: incidentboard-backend
+  name: mazehub-backend
   labels: {{- include "ib.labels" . | nindent 4 }}
 spec:
   {{- if not .Values.hpa.enabled }}
@@ -23,7 +23,7 @@ spec:
         # (seen in CI run 37652264374). Same image as the DB, so the node already has it.
         - name: wait-for-db
           image: postgres:16-alpine
-          command: ["sh", "-c", "until pg_isready -h incidentboard-postgres -p 5432; do sleep 2; done"]
+          command: ["sh", "-c", "until pg_isready -h mazehub-postgres -p 5432; do sleep 2; done"]
           resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {memory: 32Mi}}
       containers:
         - name: backend
@@ -31,10 +31,10 @@ spec:
           imagePullPolicy: {{ .Values.imagePullPolicy }}
           ports: [{name: http, containerPort: 8000}]
           envFrom:
-            - configMapRef: {name: incidentboard-config}
+            - configMapRef: {name: mazehub-config}
           env:
             - name: DATABASE_URL
-              valueFrom: {secretKeyRef: {name: incidentboard-db, key: DATABASE_URL}}
+              valueFrom: {secretKeyRef: {name: mazehub-db, key: DATABASE_URL}}
           readinessProbe:
             httpGet: {path: /ready, port: http}
             initialDelaySeconds: 5
@@ -49,7 +49,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: incidentboard-backend
+  name: mazehub-backend
   labels:
     app: backend
     {{- include "ib.labels" . | nindent 4 }}

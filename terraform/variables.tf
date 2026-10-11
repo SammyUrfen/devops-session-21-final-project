@@ -7,7 +7,7 @@ variable "aws_region" {
 variable "project" {
   description = "Name prefix for resources."
   type        = string
-  default     = "incidentboard"
+  default     = "mazehub"
 }
 
 variable "vpc_cidr" {

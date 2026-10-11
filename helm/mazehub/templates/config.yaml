@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: incidentboard-config
+  name: mazehub-config
   labels: {{- include "ib.labels" . | nindent 4 }}
 data:
   ENVIRONMENT: {{ .Values.config.environment | quote }}
@@ -10,10 +10,10 @@ data:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: incidentboard-db
+  name: mazehub-db
   labels: {{- include "ib.labels" . | nindent 4 }}
 type: Opaque
 stringData:
   POSTGRES_USER: {{ .Values.postgres.username | quote }}
   POSTGRES_PASSWORD: {{ .Values.postgres.password | quote }}
-  DATABASE_URL: "postgresql+psycopg://{{ .Values.postgres.username }}:{{ .Values.postgres.password }}@incidentboard-postgres:5432/{{ .Values.postgres.database }}"
+  DATABASE_URL: "postgresql+psycopg://{{ .Values.postgres.username }}:{{ .Values.postgres.password }}@mazehub-postgres:5432/{{ .Values.postgres.database }}"

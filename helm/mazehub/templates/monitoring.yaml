@@ -2,7 +2,7 @@
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: incidentboard-backend
+  name: mazehub-backend
   labels: {{- include "ib.labels" . | nindent 4 }}
 spec:
   selector: {matchLabels: {app: backend}}
@@ -11,21 +11,21 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
-  name: incidentboard-alerts
+  name: mazehub-alerts
   labels: {{- include "ib.labels" . | nindent 4 }}
 spec:
   groups:
-    - name: incidentboard
+    - name: mazehub
       rules:
-        - alert: IncidentBoardBackendDown
+        - alert: MazeHubBackendDown
           # up==0 catches a failing scrape; absent() catches "no backend pods at all"
-          expr: absent(up{job="incidentboard-backend", namespace="{{ .Release.Namespace }}"} == 1)
+          expr: absent(up{job="mazehub-backend", namespace="{{ .Release.Namespace }}"} == 1)
           for: 1m
           labels: {severity: critical}
           annotations:
-            summary: "No healthy IncidentBoard backend target in {{ .Release.Namespace }}"
-        - alert: IncidentBoardHigh5xxRate
-          expr: sum(rate(http_requests_total{job="incidentboard-backend", status="5xx"}[2m])) > 0.1
+            summary: "No healthy MazeHub backend target in {{ .Release.Namespace }}"
+        - alert: MazeHubHigh5xxRate
+          expr: sum(rate(http_requests_total{job="mazehub-backend", status="5xx"}[2m])) > 0.1
           for: 2m
           labels: {severity: warning}
           annotations:
