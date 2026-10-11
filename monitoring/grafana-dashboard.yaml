@@ -1,4 +1,7 @@
 # The kube-prometheus-stack Grafana sidecar loads every ConfigMap labelled grafana_dashboard=1.
+# Each panel names the datasource by uid. kube-prometheus-stack provisions the Prometheus
+# datasource with uid "prometheus"; without the name a panel silently follows whatever
+# datasource Grafana happens to call default.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -12,14 +15,75 @@ data:
       "uid": "mazehub",
       "schemaVersion": 39,
       "time": {"from": "now-30m", "to": "now"},
+      "refresh": "10s",
       "panels": [
-        {"type": "timeseries", "title": "Requests per second by handler", "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
-         "targets": [{"expr": "sum by (handler) (rate(http_requests_total{job=\"mazehub-backend\"}[1m]))", "legendFormat": "{{handler}}"}]},
-        {"type": "timeseries", "title": "p95 latency (s)", "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
-         "targets": [{"expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"mazehub-backend\"}[2m])))"}]},
-        {"type": "timeseries", "title": "Pod memory (MiB)", "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
-         "targets": [{"expr": "max by (pod) (container_memory_working_set_bytes{namespace=\"mazehub\",pod!=\"\"}) / 1024 / 1024", "legendFormat": "{{pod}}"}]},
-        {"type": "stat", "title": "Backend targets up", "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
-         "targets": [{"expr": "sum(up{job=\"mazehub-backend\"})"}]}
+        {
+          "type": "timeseries",
+          "title": "Requests per second by handler",
+          "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "sum by (handler) (rate(http_requests_total{job=\"mazehub-backend\"}[1m]))",
+              "legendFormat": "{{handler}}"
+            }
+          ],
+          "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []}
+        },
+        {
+          "type": "timeseries",
+          "title": "p95 latency",
+          "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"mazehub-backend\"}[5m])))",
+              "legendFormat": "p95"
+            }
+          ],
+          "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}
+        },
+        {
+          "type": "timeseries",
+          "title": "Responses per second by status class",
+          "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "sum by (status) (rate(http_requests_total{job=\"mazehub-backend\"}[1m]))",
+              "legendFormat": "{{status}}"
+            }
+          ],
+          "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []}
+        },
+        {
+          "type": "stat",
+          "title": "Backend targets up",
+          "gridPos": {"x": 12, "y": 8, "w": 6, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "sum(up{job=\"mazehub-backend\"})",
+              "legendFormat": "up"
+            }
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Requests served (total)",
+          "gridPos": {"x": 18, "y": 8, "w": 6, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "prometheus"},
+              "expr": "sum(http_requests_total{job=\"mazehub-backend\"})",
+              "legendFormat": "requests"
+            }
+          ]
+        }
       ]
     }
