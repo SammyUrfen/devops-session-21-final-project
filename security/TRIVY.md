@@ -11,7 +11,8 @@ shows everything, and once as the gate with `--exit-code 1 --severity HIGH,CRITI
 that has a fixed version available. `security/.trivyignore` is empty on purpose, so nothing is
 hidden from the gate.
 
-The last recorded run is commit `7d8bcd1`, 11 October 2026. The backend image reported
+The last recorded run is commit `3db8615`, 11 October 2026, pipeline run 38176668989. The full log
+of that scan step is in `.evidence/trivy-run.txt`. The backend image reported
 `Total: 1 (LOW: 0, MEDIUM: 1, HIGH: 0, CRITICAL: 0)` on Alpine 3.24.2 across 38 OS packages. The one
 finding is **CVE-2026-85091**, a MEDIUM buffer-overflow issue in `zlib`, installed as `1.3.2-r0`
 with a fix in `1.3.2-r1`. The frontend image, on Alpine 3.23.4 across 70 packages, reported no
