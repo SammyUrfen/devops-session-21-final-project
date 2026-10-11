@@ -562,7 +562,7 @@ list for its whole life, so no request ever reached it.
 |---|---|---|---|
 | M1 Application | 10 | `backend/app/`, `backend/alembic/versions/0001_create_mazes.py` and `0002_add_maze_source.py`, `frontend/src/`, `docker-compose.yml`, `.evidence/compose-verify.txt`, `.evidence/ui-0*.png` and `ui-10-*.png` | Done. 14 endpoints, two tables with a cascade, two Alembic migrations, a React canvas UI |
 | M2 Testing | 10 | `backend/tests/` (4 files), `backend/pytest.ini`, `backend/tests/conftest.py`, `.evidence/community-verify.txt` sections 1 to 3 | Done. 39 pytest plus 10 node tests, on a throwaway SQLite file, never Postgres |
-| M3 Git and GitHub | 5 | `git log`, `.gitignore` | Done. Public repository, 18 commits, each message a sentence. `.gitignore` excludes `.env`, `__pycache__`, `node_modules` and `.venv` |
+| M3 Git and GitHub | 5 | `git log`, `.gitignore` | Done. Public repository, more than 10 commits, each message one imperative sentence. `.gitignore` excludes `.env`, `__pycache__`, `node_modules` and `.venv` |
 | M4 Docker | 10 | `backend/Dockerfile`, `frontend/Dockerfile`, `docker-compose.yml`, `.evidence/compose-verify.txt` | Done. A multi-stage frontend build, non-root in both images, three services up |
 | M5 CI/CD | 15 | `.github/workflows/ci-cd.yml`, Actions run for `7d8bcd1` | Done. Six jobs green, both images tagged with the commit SHA, pushed to GHCR, deployed to kind with a smoke test. GHCR packages are private, so the package page needs the owner's own session for a screenshot |
 | M6 Trivy | 5 | `security/TRIVY.md`, `security/.trivyignore`, job 5 of the workflow | Done. Both images scanned. The gate fails on a fixable HIGH or CRITICAL. The last scan found one MEDIUM, `CVE-2026-85091` in zlib |
