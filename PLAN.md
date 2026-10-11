@@ -190,3 +190,103 @@ I keep each service running and tell you when to capture. The browser items run 
 | EKS resources stay and cost money | `destroy` runs in the same session. I check the console API after it. |
 | The maze canvas does not work in the browser | A keyboard-free fallback: the solution path draws on request. |
 | The session hits a usage limit | Each phase ends with a commit. Work resumes from the last commit. |
+
+---
+
+## 10. API contract (frozen, backend worker)
+
+The backend is built. The frontend and the Helm chart build against the names below. Do not rename a
+field or a path without a note in this section.
+
+### Difficulty and size
+
+| Difficulty | Width | Height |
+|---|---|---|
+| `EASY` | 8 | 8 |
+| `MEDIUM` | 14 | 14 |
+| `HARD` | 20 | 20 |
+
+Any other value returns 422. The size map lives in `SIZES` in `backend/app/maze.py`.
+
+### Maze JSON
+
+```json
+{
+  "id": 1,
+  "title": "Hedge",
+  "author": "anonymous",
+  "difficulty": "MEDIUM",
+  "width": 14,
+  "height": 14,
+  "seed": 3821993271084116,
+  "grid": [[11, 13, 3], [12, 5, 6]],
+  "solution_length": 41,
+  "created_at": "2026-10-12T09:14:02.511Z",
+  "completion_count": 0
+}
+```
+
+The `grid` above is shortened to a real 3x2 carve, so the example fits on the page. A real MEDIUM
+maze holds 14 rows of 14 integers.
+
+`grid` holds `height` rows. Each row holds `width` integers, indexed `grid[y][x]`. One integer is the
+wall bitmask of one cell. A set bit means a wall is present.
+
+| Bit | Value | Side | Neighbour |
+|---|---|---|---|
+| N | 1 | top | `y - 1` |
+| E | 2 | right | `x + 1` |
+| S | 4 | bottom | `y + 1` |
+| W | 8 | left | `x - 1` |
+
+A closed cell is 15. The entrance is `(0, 0)`. The exit is `(width - 1, height - 1)`. The two cells on
+each side of a wall always agree, so the renderer can draw every edge of every cell and get a clean
+grid. `solution_length` counts cells on the shortest path, so it includes the entrance and the exit.
+The smallest possible move count is `solution_length - 1`.
+
+### Completion JSON
+
+```json
+{
+  "id": 7,
+  "maze_id": 1,
+  "maze_title": "Hedge",
+  "player": "bibek",
+  "moves": 58,
+  "seconds": 42,
+  "completed_at": "2026-10-12T09:20:44.102Z"
+}
+```
+
+### Routes
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| GET | `/` | — | Service name, environment, docs path |
+| GET | `/health` | — | `{"status": "UP"}`. No database read. |
+| GET | `/ready` | — | `{"status": "READY"}`. Reads the database. |
+| GET | `/metrics` | — | Prometheus text format |
+| GET | `/api/config` | — | `{environment, banner}` |
+| GET | `/api/mazes` | — | List of Maze, newest first. Query: `difficulty`, `author`. |
+| GET | `/api/mazes/stats` | — | `{total, by_difficulty: {EASY, MEDIUM, HARD}, completions, authors}` |
+| GET | `/api/mazes/{id}` | — | Maze. 404 when missing. |
+| POST | `/api/mazes` | `{title, author?, difficulty}` | 201 Maze |
+| PUT | `/api/mazes/{id}` | `{title?, difficulty?}` | Maze. 404 when missing. |
+| DELETE | `/api/mazes/{id}` | — | 204. 404 when missing. |
+| GET | `/api/mazes/{id}/solution` | — | `{path: [[x, y], ...], length}` |
+| POST | `/api/mazes/{id}/completions` | `{player, moves, seconds}` | 201 Completion |
+| GET | `/api/completions` | — | List of Completion, newest first. Query: `player`. |
+
+### Rules the frontend must respect
+
+1. The server picks the seed. A client never sends `seed`, `width`, `height`, `grid` or
+   `solution_length`. The server generates the grid and verifies it before it stores it.
+2. A `difficulty` change on `PUT` regenerates the grid at the new size, with a new seed. The old grid
+   is gone. A `title`-only `PUT` leaves the grid untouched.
+3. `DELETE` removes the completions of that maze as well, through a cascade in the database.
+4. `POST /api/mazes/{id}/completions` rejects a `moves` value below `solution_length` with 422 and a
+   message that names both numbers. This is the cheat guard. Send the real move count.
+5. `/api/mazes/stats` is declared before `/api/mazes/{id}`, because FastAPI matches paths in
+   declaration order. Keep that order.
+6. `/api/mazes` includes the full `grid` for each maze. A HARD gallery page is therefore a few hundred
+   kilobytes. That is accepted for a 20x20 grid and a small gallery.

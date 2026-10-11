@@ -1,39 +1,60 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
-Status = Literal["OPEN", "INVESTIGATING", "RESOLVED"]
-Severity = Literal["SEV1", "SEV2", "SEV3"]
+Difficulty = Literal["EASY", "MEDIUM", "HARD"]
 
 
-class IncidentCreate(BaseModel):
+class MazeCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
-    service: str = Field(default="unknown", max_length=80)
-    severity: Severity = "SEV3"
-    status: Status = "OPEN"
-    owner: str = Field(default="on-call", max_length=120)
-    description: str = ""
+    author: str = Field(default="anonymous", min_length=1, max_length=120)
+    difficulty: Difficulty = "EASY"
 
 
-class IncidentUpdate(BaseModel):
+class MazeUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=200)
-    service: str | None = Field(default=None, max_length=80)
-    severity: Severity | None = None
-    status: Status | None = None
-    owner: str | None = Field(default=None, max_length=120)
-    description: str | None = None
+    difficulty: Difficulty | None = None
 
 
-class IncidentOut(IncidentCreate):
+class MazeOut(BaseModel):
     id: int
+    title: str
+    author: str
+    difficulty: Difficulty
+    width: int
+    height: int
+    seed: int
+    # One row for each y, one wall bitmask for each x. See app/maze.py for the bit convention.
+    grid: list[list[int]]
+    solution_length: int
     created_at: datetime
-    model_config = ConfigDict(from_attributes=True)
+    completion_count: int
+
+
+class CompletionCreate(BaseModel):
+    player: str = Field(min_length=1, max_length=120)
+    moves: int = Field(ge=1)
+    seconds: int = Field(ge=0)
+
+
+class CompletionOut(BaseModel):
+    id: int
+    maze_id: int
+    maze_title: str
+    player: str
+    moves: int
+    seconds: int
+    completed_at: datetime
+
+
+class SolutionOut(BaseModel):
+    path: list[tuple[int, int]]
+    length: int
 
 
 class StatsOut(BaseModel):
     total: int
-    open: int
-    investigating: int
-    resolved: int
-    sev1Open: int
+    by_difficulty: dict[str, int]
+    completions: int
+    authors: int
