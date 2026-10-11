@@ -1,7 +1,7 @@
 // Checks the wall-bitmask reading used by the play canvas. Run: node --test src/maze.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DIRECTIONS, wallsOf, canMove, step } from './maze.js';
+import { DIRECTIONS, wallsOf, canMove, step, statTiles } from './maze.js';
 
 const ALL_WALLS = 15; // N|E|S|W, a cell sealed on every side
 const OPEN = 0; // no wall on any side
@@ -39,4 +39,28 @@ test('a move off the border is refused even with no wall bit', () => {
   assert.equal(canMove(grid, 0, 0, 'W'), false, 'west of the left column is outside');
   assert.equal(canMove(grid, 1, 1, 'E'), false, 'east of the last column is outside');
   assert.equal(canMove(grid, 1, 1, 'S'), false, 'south of the last row is outside');
+});
+
+test('stat tiles flatten the nested by_difficulty counts', () => {
+  // The real shape of GET /api/mazes/stats. by_difficulty is an object, so a plain
+  // Object.entries walk renders "[object Object]" in a tile.
+  const tiles = statTiles({
+    total: 3,
+    by_difficulty: { EASY: 1, MEDIUM: 0, HARD: 2 },
+    completions: 4,
+    authors: 2,
+  });
+  assert.deepEqual(tiles, [
+    { label: 'total', value: 3 },
+    { label: 'easy', value: 1 },
+    { label: 'medium', value: 0 },
+    { label: 'hard', value: 2 },
+    { label: 'completions', value: 4 },
+    { label: 'authors', value: 2 },
+  ]);
+  for (const tile of tiles) assert.equal(typeof tile.value, 'number', `${tile.label} must be a number`);
+});
+
+test('stat tiles of nothing is an empty list', () => {
+  assert.deepEqual(statTiles(null), []);
 });

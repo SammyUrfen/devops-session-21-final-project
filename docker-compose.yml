@@ -27,7 +27,9 @@ services:
   frontend:
     build: ./frontend
     depends_on: [backend]
-    ports: ["3000:8080"]
+    # The host port is 3000 unless FRONTEND_PORT says otherwise. The override exists because another
+    # dev server may already hold 3000, and the container port stays 8080 either way.
+    ports: ["${FRONTEND_PORT:-3000}:8080"]
     mem_limit: 128m
 
 volumes:

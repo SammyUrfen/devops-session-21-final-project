@@ -44,3 +44,18 @@ export function canMove(grid, x, y, dir) {
   // A border cell can carry a clear bit in malformed data, so check the bounds too.
   return grid[target.y] !== undefined && grid[target.y][target.x] !== undefined;
 }
+
+/** Flatten GET /api/mazes/stats into one tile per number, in server key order.
+ *
+ * by_difficulty is a nested object, so a plain Object.entries walk over the response puts an
+ * object into a tile and the card reads "[object Object]". Each nested count becomes its own tile,
+ * labelled by its inner key, and a new top-level counter still needs no change here.
+ */
+export function statTiles(stats) {
+  if (!stats || typeof stats !== 'object') return [];
+  return Object.entries(stats).flatMap(([key, value]) =>
+    value && typeof value === 'object'
+      ? Object.entries(value).map(([inner, count]) => ({ label: inner.toLowerCase(), value: count }))
+      : [{ label: key.replace(/_/g, ' '), value }],
+  );
+}

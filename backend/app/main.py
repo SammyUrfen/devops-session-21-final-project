@@ -198,14 +198,20 @@ def create_completion(maze_id: int, payload: CompletionCreate, db: DbSession):
     crosses one open wall and the solver already found the minimum. A lower count means the client
     posted a made-up score, so reject it with 422 rather than store a leaderboard nobody trusts.
     More moves than the minimum are normal, the player wandered.
+
+    solution_length counts cells and includes both the entrance and the exit, so a path of n cells
+    takes n - 1 moves. The guard compares against that, not against the cell count, otherwise the
+    perfect run is the one run the server refuses. PLAN.md section 10 states the same bound.
     """
     maze = _get_or_404(db, maze_id)
-    if payload.moves < maze.solution_length:
+    fewest_possible_moves = maze.solution_length - 1
+    if payload.moves < fewest_possible_moves:
         raise HTTPException(
             status_code=422,
             detail=(
                 f"{payload.moves} moves is below the shortest path of "
-                f"{maze.solution_length} cells, so the run is not possible"
+                f"{fewest_possible_moves} moves across {maze.solution_length} cells, "
+                "so the run is not possible"
             ),
         )
     done = Completion(maze_id=maze.id, **payload.model_dump())

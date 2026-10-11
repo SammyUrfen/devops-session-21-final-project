@@ -116,12 +116,28 @@ def test_completion_flow(client):
     assert client.get("/api/completions?player=nobody").json() == []
 
 
+def test_completion_accepts_the_optimal_run(client):
+    """A player who walks the shortest path takes solution_length - 1 moves, one per crossed wall.
+
+    solution_length counts cells, so the perfect run is one move short of it. The guard must accept
+    that number, otherwise the best possible run is the one run the server refuses.
+    """
+    maze = _publish(client, "Perfect", "EASY")
+    best_moves = maze["solution_length"] - 1
+    r = client.post(
+        f"/api/mazes/{maze['id']}/completions",
+        json={"player": "bibek", "moves": best_moves, "seconds": 9},
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["moves"] == best_moves
+
+
 def test_completion_rejects_impossible_move_count(client):
     """The cheat guard: fewer moves than the shortest path cannot happen in a real run."""
     maze = _publish(client, "Cheat", "EASY")
     r = client.post(
         f"/api/mazes/{maze['id']}/completions",
-        json={"player": "cheater", "moves": maze["solution_length"] - 1, "seconds": 1},
+        json={"player": "cheater", "moves": maze["solution_length"] - 2, "seconds": 1},
     )
     assert r.status_code == 422
     assert "shortest path" in r.json()["detail"].lower()

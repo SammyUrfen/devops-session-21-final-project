@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
-import { DIRECTIONS, canMove, step, wallsOf } from './maze.js';
+import { DIRECTIONS, canMove, statTiles, step, wallsOf } from './maze.js';
 
 // Same-origin base path. Nginx (compose) and the Ingress (Kubernetes) both route /api
 // to the backend, so the host must never appear here.
@@ -112,7 +112,7 @@ function NameGate({ onSave }) {
           <div><p className="eyebrow">MAZEHUB</p><h2>What should we call you?</h2></div>
         </div>
         <p className="muted">No sign in. The name stays in this browser and labels the mazes you solve.</p>
-        <label>Player name<input name="player" required autoFocus maxLength={40} placeholder="e.g. Bibek" /></label>
+        <label>Player name<input name="player" required autoFocus maxLength={40} placeholder="e.g. Explorer" /></label>
         <button className="primary full">Start</button>
       </form>
     </div>
@@ -163,10 +163,10 @@ function Gallery({ onPlay, onPublish }) {
         <button className="primary" onClick={onPublish}>＋ Publish a maze</button>
       </header>
       {error && <ErrorBanner message={error} onRetry={load} />}
-      {/* The stats shape is the server's. Render a card per key so a new counter needs no change here. */}
+      {/* statTiles flattens the server's shape, including the nested by_difficulty counts. */}
       <section className="stats">
         {stats
-          ? Object.entries(stats).map(([key, value]) => <Stat key={key} label={key.replace(/_/g, ' ')} value={value} />)
+          ? statTiles(stats).map((tile) => <Stat key={tile.label} label={tile.label} value={tile.value} />)
           : <div className="empty">Loading counts…</div>}
       </section>
       <section className="panel">
