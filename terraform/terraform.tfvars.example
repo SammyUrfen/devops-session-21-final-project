@@ -1,6 +1,24 @@
-# Copy to terraform.tfvars and edit. terraform.tfvars is git-ignored.
-aws_region       = "ap-south-1"
-project          = "mazehub"
-instance_type    = "t3.small"
-ssh_allowed_cidr = "203.0.113.10/32" # replace with your public IP: curl -s https://checkip.amazonaws.com
-# key_name       = "my-existing-keypair"
+# Copy this file to terraform.tfvars and edit the values you want to change.
+# terraform.tfvars is git-ignored. Every variable below already has a default in
+# variables.tf, so an empty terraform.tfvars also works.
+#
+# No credentials belong in this file. Terraform reads them from the environment
+# or from ~/.aws/credentials:
+#   export AWS_PROFILE=SammyUrfen-CLI
+#   aws sts get-caller-identity
+
+aws_region   = "ap-south-1"
+project      = "mazehub"
+cluster_name = "mazehub-eks"
+
+cluster_version = "1.31"
+
+vpc_cidr             = "10.21.0.0/16"
+availability_zones   = ["ap-south-1a", "ap-south-1b"]
+public_subnet_cidrs  = ["10.21.101.0/24", "10.21.102.0/24"]
+private_subnet_cidrs = ["10.21.1.0/24", "10.21.2.0/24"]
+
+node_instance_types     = ["t3.medium"]
+node_group_min_size     = 2
+node_group_max_size     = 3
+node_group_desired_size = 2

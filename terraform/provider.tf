@@ -1,23 +1,22 @@
-terraform {
-  required_version = ">= 1.6.0"
-
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 6.0"
-    }
-  }
-}
-
 provider "aws" {
   region = var.aws_region
 
-  # Every resource gets these tags, so the bill and the console show what Terraform made.
+  # default_tags stamps every taggable resource, including the ones the VPC and
+  # EKS modules create for us. That matters for cost: the AWS bill can be split
+  # by the Project tag, so the cost of this capstone window is auditable after
+  # the fact rather than guessed at.
   default_tags {
-    tags = {
-      Project   = var.project
-      Session   = "21"
-      ManagedBy = "Terraform"
-    }
+    tags = local.tags
+  }
+}
+
+locals {
+  # One tag set, referenced by the provider and by every module. Keeping it in a
+  # local instead of repeating the map stops the three copies from drifting.
+  tags = {
+    Project   = var.project
+    Owner     = "SammyUrfen"
+    ManagedBy = "terraform"
+    Session   = "21"
   }
 }
