@@ -19,7 +19,7 @@ imagePullSecrets: []
 # Non-secret settings -> ConfigMap (env vars of the backend).
 config:
   environment: dev
-  banner: "Find your way out"
+  banner: "Demo build test"
 
 postgres:
   database: mazehub
