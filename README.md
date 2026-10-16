@@ -12,7 +12,7 @@ tables carry the data, `mazes` and `completions`, with a cascading foreign key b
 Repository: <https://github.com/SammyUrfen/devops-session-21-final-project>
 
 This repository is the Session 21 capstone. The rubric of record is
-`devops-heros/session21-python/GRADING.md`, 100 points across 10 modules. Section 15 maps each
+`devops-heros/session21-python/GRADING.md`, 100 points across 10 modules. Section 13 maps each
 module to its evidence and states what is done and what is not.
 
 ---
@@ -66,7 +66,6 @@ flowchart LR
 | Kubernetes | minikube profile `s21`, kind in CI | Kubernetes v1.35.1 locally |
 | Packaging | Helm | chart `mazehub-1.0.0` |
 | Monitoring | kube-prometheus-stack, Grafana | chart 92.1.0, Grafana 13.2.3 |
-| GitOps | Argo CD | `gitops/application.yaml` |
 | Infrastructure | Terraform, AWS VPC and EKS modules | Terraform 1.16.1, AWS provider 5.100.0, VPC `~> 5.8`, EKS `~> 20.37` |
 
 ---
@@ -104,7 +103,7 @@ is below `solution_length - 1`, and the message names both numbers.
 ### The structural guard on drawn grids
 
 A hand-drawn grid arrives from the browser. The server trusts none of it. Each check returns its own
-422 message. Real messages from the verification run are in `.evidence/community-verify.txt`.
+422 message.
 
 | # | Check | Example message |
 |---|---|---|
@@ -168,8 +167,7 @@ Open <http://localhost:3000>. The frontend proxies `/api` to the backend through
 browser needs no CORS rule.
 
 The backend waits for the Postgres health check, then runs the Alembic migration before it serves.
-The container command is `alembic upgrade head && exec uvicorn app.main:app`. From
-`.evidence/compose-verify.txt`:
+The container command is `alembic upgrade head && exec uvicorn app.main:app`. The start log reads:
 
 ```text
 backend-1  | INFO  [alembic.runtime.migration] Running upgrade  -> 0001_create_mazes, Create the mazes and completions tables.
@@ -180,7 +178,7 @@ backend-1  | INFO:     Uvicorn running on http://0.0.0.0:8000
 `completions` and `mazes`.
 
 One note on the port. During the capture session another project held port 3000, so the stack ran
-on 3001. The compose default is still 3000. `.evidence/CAPTURE.md` records that.
+on 3001. The compose default is still 3000.
 
 ---
 
@@ -191,7 +189,7 @@ on 3001. The compose default is still 3000. `.evidence/CAPTURE.md` records that.
 | Backend, pytest | 39 | `cd backend && python -m pytest -v` |
 | Frontend, node test runner | 10 | `cd frontend && node --test src/maze.test.mjs` |
 
-Both numbers come from `.evidence/community-verify.txt`, sections 1 and 3. The pipeline runs both in
+The pipeline runs both suites in
 job 1, so a failure stops the build before any image exists.
 
 What the backend tests cover, across four files:
@@ -241,7 +239,7 @@ Both Helm Deployments also set `allowPrivilegeEscalation: false` and `runAsNonRo
 ## 8. CI/CD
 
 The workflow is `.github/workflows/ci-cd.yml`. It triggers on a push to `main`, on a pull request to
-`main`, and on manual dispatch. It ignores changes limited to `gitops/**` and `**.md`, because a
+`main`, and on manual dispatch. It ignores changes limited to `**.md`, because a
 values-only GitOps change needs no new image.
 
 | # | Job | Does |
@@ -306,14 +304,14 @@ default rule set and allow-lists nothing.
 ## 10. Kubernetes and Helm
 
 The local cluster is the minikube profile `s21`: Kubernetes v1.35.1, the docker driver, 4 CPUs and
-3072 MB. Full output is in `.evidence/k8s-verify.txt`.
+3072 MB.
 
 | Item | Value |
 |---|---|
 | Namespace | `mazehub`, from `k8s/namespace.yaml`, labelled `app.kubernetes.io/part-of=mazehub` |
 | Chart | `helm/mazehub`, `mazehub-1.0.0`, app version 1.0.0 |
 | Templates | `backend.yaml`, `frontend.yaml`, `postgres.yaml`, `config.yaml`, `ingress.yaml`, `hpa.yaml`, `monitoring.yaml`, `_helpers.tpl` |
-| Values | `helm/mazehub/values.yaml` is the default. `k8s/values-local.yaml` overrides the images for minikube. `gitops/values-minikube.yaml` is the Argo CD layer |
+| Values | `helm/mazehub/values.yaml` is the default. `k8s/values-local.yaml` overrides the images for minikube |
 | Replicas | backend 2, frontend 2, postgres 1 |
 | Services | `mazehub-backend` ClusterIP 8000, `mazehub-frontend` ClusterIP 80 to container 8080, `mazehub-postgres` ClusterIP 5432 |
 | Ingress | class `nginx`, host `mazehub.local`, address 192.168.58.2 |
@@ -325,8 +323,8 @@ The local cluster is the minikube profile `s21`: Kubernetes v1.35.1, the docker 
 
 The chart renders the ConfigMap checksum into the Deployment, so a values-only change rolls the pods.
 
-**Images in the local run.** The GHCR packages are private, so the two images are built straight into
-the cluster's own docker daemon as `mazehub-backend:dev` and `mazehub-frontend:dev`.
+**Images in the local run.** The two images are built straight into the cluster's own docker
+daemon as `mazehub-backend:dev` and `mazehub-frontend:dev`, so the node pulls nothing.
 `k8s/values-local.yaml` carries those tags and `imagePullPolicy: Never`. CI instead pulls the GHCR
 images by commit SHA with a pull secret.
 
@@ -403,37 +401,9 @@ demo value in a local cluster, not a secret.
 
 ---
 
-## 12. GitOps
+## 12. Terraform
 
-`gitops/application.yaml` declares an Argo CD `Application` named `mazehub`. It points at this
-repository on `main`, renders `helm/mazehub` with `gitops/values-minikube.yaml`, and targets the
-`mazehub` namespace. `syncPolicy.automated` has `prune: true` and `selfHeal: true`, so Argo CD
-deletes what Git no longer declares and reverts a manual change. Editing
-`gitops/values-minikube.yaml` and pushing is the whole deploy step. The CI workflow ignores
-`gitops/**` for that reason: a values-only change needs no new image.
-
-**Honest state.** Argo CD is installed in this cluster but **scaled to zero**, to free memory for
-the MazeHub release and kube-prometheus-stack on a 3072 MB node:
-
-```text
-deployment.apps/argocd-applicationset-controller   0/0
-deployment.apps/argocd-redis                       0/0
-deployment.apps/argocd-repo-server                 0/0
-statefulset.apps/argocd-application-controller     0/0
-```
-
-The loop was proven end to end on 7 October, under the earlier application name `incidentboard`:
-a banner change was committed and pushed, Argo CD synced the new revision, the ConfigMap checksum
-changed, a new ReplicaSet rolled, and the new banner answered through the Ingress. That output is in
-`.evidence/argo2.txt`. The `Application` object still in the cluster carries the old name. The
-renamed manifest has **not** been applied again since the rename to MazeHub. Scaling the four
-workloads back up re-runs the loop.
-
----
-
-## 13. Terraform
-
-`terraform/` builds the AWS infrastructure. `terraform/README.md` is the long version.
+`terraform/` builds the AWS infrastructure.
 
 | Piece | Detail |
 |---|---|
@@ -445,9 +415,7 @@ workloads back up re-runs the loop.
 | Node group | One managed group named `main`. `t3.medium`, desired 2, min 2, max 3 |
 | ECR | Two repositories, `mazehub-backend` and `mazehub-frontend`, each keeping 10 images |
 | Plan | `Plan: 62 to add, 0 to change, 0 to destroy.` No error and no warning, 1616 lines |
-| Cost | About **USD 0.27 each hour**: control plane 0.10, two nodes 0.1056, NAT 0.056, Elastic IP 0.005, two root volumes about 0.002. A 75 minute window costs about USD 0.35 |
-
-Evidence: `.evidence/terraform-checks.txt` and `.evidence/terraform-plan.txt`.
+| Cost | About **USD 0.27 each hour**: control plane 0.10, two nodes 0.1056, NAT 0.056, Elastic IP 0.005, two root volumes about 0.002. The real window ran 2.5 hours and cost about USD 0.60 |
 
 | Command | State |
 |---|---|
@@ -456,15 +424,16 @@ Evidence: `.evidence/terraform-checks.txt` and `.evidence/terraform-plan.txt`.
 | `terraform fmt -recursive` | Ran. No file needed a change |
 | `terraform validate` | Ran. `Success! The configuration is valid.` |
 | `terraform plan` | Ran. 62 to add |
-| `terraform apply` | **Pending. The user runs it in the screenshot window** |
-| `terraform destroy` | **Pending. The user runs it in the screenshot window** |
+| `terraform apply` | Ran on 2026-10-16. `Apply complete! Resources: 62 added, 0 changed, 0 destroyed.` |
+| `terraform destroy` | Ran on 2026-10-16. `Destroy complete! Resources: 62 destroyed.` |
 
-**No AWS resource exists today.** Nothing in this repository has created a VPC, a cluster, a node or
-a repository in AWS. Only the plan ran.
+**No AWS resource exists today.** The window ran on 2026-10-16 for about 2.5 hours and then closed.
+`terraform destroy` removed all 62 resources. A check after the destroy found 0 EKS clusters, 0
+Elastic IPs, 0 ECR repositories, the NAT gateway deleted, both nodes terminated, and only the
+default VPC left. The account carries no cost from this project.
 
-The IAM user needs rights first. EKS creation calls `iam:CreateRole`, `iam:AttachRolePolicy`,
-`iam:PassRole`, `eks:*` and `logs:*`. Attach `AdministratorAccess` to `SammyUrfen-CLI` for the
-window, then remove it.
+EKS creation calls `iam:CreateRole`, `iam:AttachRolePolicy`, `iam:PassRole`, `eks:*` and `logs:*`.
+The IAM user needs those rights before step 1.
 
 ```bash
 aws sts get-caller-identity          # 0. confirm the identity
@@ -490,112 +459,27 @@ suits one operator on one laptop and would not suit a team.
 
 ---
 
-## 14. Troubleshooting
+## 13. Rubric map
 
-`k8s/troubleshooting/` holds **five** break cases. Each one is applied to the running Helm release
-and then undone. Case 3 is the one with captured output, in `.evidence/k8s-verify.txt`. The other
-four carry the break file and the fix, and have not been captured in this session.
+Every screenshot is in [`docs/evidence/`](docs/evidence/). That folder has its own index, one row
+for each line the rubric asks a student to submit.
 
-### Case 1 — Bad image tag
+| Module | Points | Code | Screenshots | State |
+|---|---|---|---|---|
+| M1 Application | 10 | `backend/app/`, `backend/alembic/versions/`, `frontend/src/`, `docker-compose.yml` | `m01-*` | Done. 14 endpoints, 2 tables with a cascade, 2 Alembic migrations, a React canvas UI |
+| M2 Testing | 10 | `backend/tests/` (4 files), `backend/pytest.ini`, `backend/tests/conftest.py` | `m02-*` | Done. 39 pytest tests plus 10 node tests, on a throwaway SQLite file, never Postgres |
+| M3 Git and GitHub | 5 | `.gitignore` | `m03-*` | Done. A public repository, more than 10 commits, each message one sentence. `.gitignore` excludes `.env`, `__pycache__`, `node_modules` and `.venv` |
+| M4 Docker | 10 | `backend/Dockerfile`, `frontend/Dockerfile`, `docker-compose.yml` | `m04-*` | Done. A multi-stage frontend build, a non-root user in both images, 3 services up |
+| M5 CI/CD | 15 | `.github/workflows/ci-cd.yml` | `m05-*` | Done. 6 jobs green, both images tagged with the commit SHA, pushed to GHCR, deployed to kind with a smoke test. Both GHCR packages are public |
+| M6 Trivy | 5 | `security/TRIVY.md`, `security/.trivyignore`, job 5 of the workflow | `m06-*` | Done. Both images scanned. The gate fails on a fixable HIGH or CRITICAL. The last scan found 1 MEDIUM, `CVE-2026-85091` in zlib |
+| M7 Terraform | 15 | `terraform/` | `m07-*` | Done. `init`, `fmt`, `validate`, a 62-resource plan, then `apply` and `destroy` on 2026-10-16. The Console shots show the VPC with 2 public subnets and the EKS node group in `ap-south-1`. All 62 resources are destroyed |
+| M8 Kubernetes and Helm | 15 | `k8s/`, `helm/mazehub/` | `m08-*` | Done on minikube `s21`. The namespace, the chart, the install, 2 plus 2 replicas, 3 ClusterIP Services, the 2 Ingress paths, every pod Running, the HPA and the probes |
+| M9 Observability | 10 | `monitoring/` | `m09-*` | Done. `/metrics` in Prometheus format, both pod targets `up`, Grafana reachable, 5 panels with data |
+| M10 Documentation and demo | 5 | This `README.md` | `m10-demo.mp4` | Done. A 4 minute recording shows the commit, the pipeline run and the deployment update |
 
-| | |
-|---|---|
-| Symptom | The new pod never becomes Ready. `kubectl get pods` shows `ImagePullBackOff` |
-| Investigation | `kubectl describe pod` and read the events at the bottom |
-| Root cause | `helm upgrade --set backend.tag=does-not-exist` asks for a tag that no registry holds |
-| Fix | `helm rollback mazehub`, or upgrade again with a tag that exists |
-| Verification | `kubectl get pods -n mazehub` shows `1/1 Running`, and the old ReplicaSet scales to zero |
-| State | Not captured this session |
-
-### Case 2 — Wrong Service selector
-
-| | |
-|---|---|
-| Symptom | A curl through the Ingress returns 503. The pods are all Running |
-| Investigation | `kubectl get endpoints mazehub-backend -n mazehub` lists no address. Compare the Service selector with the pod labels |
-| Root cause | `k8s/troubleshooting/2-wrong-selector.yaml` sets the selector to `app: backend-v2`, a label no pod carries, so the Service matches nothing |
-| Fix | Patch the selector back to `app: backend`, then `helm upgrade` |
-| Verification | `kubectl get endpoints` lists both pod IPs on port 8000, and the curl returns 200 |
-| State | Not captured this session |
-
-### Case 3 — Failing readiness probe
-
-| | |
-|---|---|
-| Symptom | A pod sits at `0/1 Running` and never joins the Service |
-| Investigation | `kubectl get events -n mazehub --field-selector reason=Unhealthy` printed `Readiness probe failed: HTTP probe failed with statuscode: 404`. `kubectl get endpoints mazehub-backend` listed only the two healthy pod IPs |
-| Root cause | `3-failing-probe.yaml` points the readiness probe at `/readyz`, a path the app does not serve. The container is alive, so the kubelet does not restart it. It is simply never Ready |
-| Fix | A plain `helm upgrade` is **refused**: `conflict with "kubectl-patch"`. `kubectl patch` became the field owner under server-side apply. Give the field back with the same tool, then upgrade: `kubectl patch deploy mazehub-backend -n mazehub --type=json -p '[{"op":"replace","path":"/spec/template/spec/containers/0/readinessProbe/httpGet/path","value":"/ready"}]'` and then `helm upgrade mazehub helm/mazehub -f k8s/values-local.yaml -n mazehub --wait`. `helm upgrade --force` also works, because it replaces the object and drops every field manager, but it recreates the Deployment instead of rolling it |
-| Verification | Revision 4 deployed, all five pods back at `1/1 Running`, and the two endpoint addresses unchanged |
-| State | **Captured.** `.evidence/k8s-verify.txt`, the section "the readiness probe really gates traffic" |
-
-This case also proves the probe does its job: the unready pod stayed out of the Service endpoint
-list for its whole life, so no request ever reached it.
-
-### Case 4 — Missing Secret key
-
-| | |
-|---|---|
-| Symptom | The backend pod crashes at start and enters `CrashLoopBackOff` |
-| Investigation | `kubectl logs` shows the container failing before Uvicorn binds. `kubectl describe pod` names the missing key |
-| Root cause | Removing `DATABASE_URL` from the `mazehub-db` Secret leaves the `envFrom` reference unresolvable, so the container cannot build a database URL |
-| Fix | `helm upgrade` rewrites the Secret from the chart |
-| Verification | `kubectl get pods` shows `1/1 Running`, and `curl /ready` returns `{"status": "READY"}` |
-| State | Not captured this session |
-
-### Case 5 — Bad Ingress backend port
-
-| | |
-|---|---|
-| Symptom | `/` loads but `/api` returns 502 or 503 from nginx |
-| Investigation | `kubectl describe ingress mazehub -n mazehub` shows the `/api` rule pointing at port 8080. `kubectl get svc` shows the backend Service on 8000 |
-| Root cause | `5-bad-ingress-backend.yaml` replaces the backend port with 8080. The Service has no such port, so the controller has nowhere to send the request |
-| Fix | Patch the port back to 8000, then `helm upgrade`. The same field-ownership conflict as case 3 applies |
-| Verification | `curl -H 'Host: mazehub.local' http://192.168.58.2/api/mazes/stats` returns the JSON counts |
-| State | Not captured this session |
+One layout note. The homework file asks for `application/`, `docker/` and `kubernetes/`. The rubric
+asks for `backend/`, `frontend/`, `docker-compose.yml` at the root and `k8s/`. The rubric carries
+the points, so this repository follows the rubric.
 
 ---
 
-## 15. Rubric map
-
-| Module | Points | Evidence | State |
-|---|---|---|---|
-| M1 Application | 10 | `backend/app/`, `backend/alembic/versions/0001_create_mazes.py` and `0002_add_maze_source.py`, `frontend/src/`, `docker-compose.yml`, `.evidence/compose-verify.txt`, `.evidence/ui-0*.png` and `ui-10-*.png` | Done. 14 endpoints, two tables with a cascade, two Alembic migrations, a React canvas UI |
-| M2 Testing | 10 | `backend/tests/` (4 files), `backend/pytest.ini`, `backend/tests/conftest.py`, `.evidence/community-verify.txt` sections 1 to 3 | Done. 39 pytest plus 10 node tests, on a throwaway SQLite file, never Postgres |
-| M3 Git and GitHub | 5 | `git log`, `.gitignore` | Done. Public repository, more than 10 commits, each message one imperative sentence. `.gitignore` excludes `.env`, `__pycache__`, `node_modules` and `.venv` |
-| M4 Docker | 10 | `backend/Dockerfile`, `frontend/Dockerfile`, `docker-compose.yml`, `.evidence/compose-verify.txt` | Done. A multi-stage frontend build, non-root in both images, three services up |
-| M5 CI/CD | 15 | `.github/workflows/ci-cd.yml`, Actions run for `7d8bcd1` | Done. Six jobs green, both images tagged with the commit SHA, pushed to GHCR, deployed to kind with a smoke test. GHCR packages are private, so the package page needs the owner's own session for a screenshot |
-| M6 Trivy | 5 | `security/TRIVY.md`, `security/.trivyignore`, job 5 of the workflow | Done. Both images scanned. The gate fails on a fixable HIGH or CRITICAL. The last scan found one MEDIUM, `CVE-2026-85091` in zlib |
-| M7 Terraform | 15 | `terraform/`, `terraform/README.md`, `.evidence/terraform-checks.txt`, `.evidence/terraform-plan.txt` | **Partly.** The code, `init`, `fmt`, `validate` and a 62-resource plan are done. `apply` and `destroy` are pending, and the AWS console screenshots depend on them. No AWS resource exists |
-| M8 Kubernetes and Helm | 15 | `k8s/`, `helm/mazehub/`, `.evidence/k8s-verify.txt`, `.evidence/ui-20-app-through-ingress.png` | Done on minikube `s21`. Namespace, chart, install, 2 plus 2 replicas, three ClusterIP Services, the two Ingress paths, every pod Running, HPA and probes. Not yet run on EKS |
-| M9 Observability | 10 | `monitoring/`, `.evidence/k8s-verify.txt` sections M9.1 to M9.4, `.evidence/ui-20-prometheus-targets.png`, `ui-20-grafana-dashboard.png` | Done. `/metrics` in Prometheus format, both pod targets `up`, Grafana reachable, five populated panels |
-| M10 Documentation and demo | 5 | This `README.md`, `scripts/demo-runsheet.md` | README done. The live demo is for the presentation session, and the runsheet is the script for it |
-
-Two layout notes. The homework file asks for `application/`, `docker/` and `kubernetes/`, and the
-rubric asks for `backend/`, `frontend/`, `docker-compose.yml` at the root and `k8s/`. The rubric
-carries the points, so this repository follows the rubric. `.evidence/` is git-ignored: it holds raw
-command output and screenshots for the submission, not source.
-
----
-
-## 16. Lessons learned
-
-- A `kubectl patch` takes ownership of the field it touches. After that, `helm upgrade` stops with a
-  conflict instead of winning. Server-side apply is per-field, and the fix is to hand the field back
-  with the same tool.
-- A readiness probe that fails does not restart anything. The container stays alive and simply never
-  joins the Service. That is the point, and the endpoint list is where you see it.
-- Alpine over Debian slim cut the image findings to one MEDIUM. Removing pip after the install and
-  running one `apk upgrade` in the frontend stage closed the rest. Choosing the base is cheaper than
-  triaging CVEs later.
-- The security gate has to be an edge in the job graph, not a step ordering. `needs: [test, sast,
-  sca, secrets]` on the build job is what makes a red scanner mean "nothing is pushed".
-- Declaration order decides FastAPI routing. `/api/mazes/stats` must come before
-  `/api/mazes/{id}`, or `stats` is read as an id.
-- A client-side check is for speed, never for trust. The browser runs the same breadth-first search
-  so the Check button is instant, and the server runs all five structural checks again anyway.
-- Memory, not CPU, was the limit on a 3072 MB node. Argo CD and kube-prometheus-stack together left
-  no room for the app, and scaling Argo CD to zero was the honest trade rather than pretending both
-  fit.
-- Writing down the frozen API contract before the frontend existed meant the two halves met without
-  a rename. The cost was 30 minutes. The saving was larger.

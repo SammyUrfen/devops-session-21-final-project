@@ -30,13 +30,12 @@ devops-session-21-final-project/
 ├── backend/            app/ tests/ alembic/ Dockerfile requirements.txt pytest.ini
 ├── frontend/           src/ index.html Dockerfile nginx.conf package.json
 ├── docker-compose.yml  frontend + backend + postgres
-├── k8s/                namespace.yaml, troubleshooting/
+├── k8s/                namespace.yaml, values-local.yaml
 ├── helm/mazehub/       Chart.yaml values.yaml templates/
 ├── terraform/          VPC + 2 public subnets + EKS + ECR
 ├── monitoring/         kube-prometheus-stack values, Grafana dashboard
-├── gitops/             Argo CD Application
-├── security/           gitleaks.toml, .trivyignore
-├── scripts/            load-test.sh, demo runsheet
+├── security/           gitleaks.toml, .trivyignore, TRIVY.md
+├── docs/evidence/      the screenshots and the demo recording
 └── .github/workflows/  ci-cd.yml
 ```
 
@@ -156,7 +155,7 @@ hour. Creation takes about 15 minutes. Destruction takes about 15 minutes. Budge
 | P4 | Local stack: compose up, pytest, minikube, Helm, monitoring | 45 min |
 | P5 | Pipeline green, GHCR images with SHA tags, Trivy note | 30 min |
 | P6 | Terraform EKS: plan, apply, your screenshots, destroy | 75 min |
-| P7 | README, troubleshooting cases, demo runsheet | 45 min |
+| P7 | README and the evidence index | 45 min |
 
 Total: about 5.5 hours of work.
 

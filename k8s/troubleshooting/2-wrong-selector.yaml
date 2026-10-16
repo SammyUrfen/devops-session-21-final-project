@@ -1,3 +1,0 @@
-# Break 2: Service selects a label no pod has (same bug as the course's broken-service.yaml).
-spec:
-  selector: {app: backend-v2}
