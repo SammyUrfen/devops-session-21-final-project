@@ -35,16 +35,9 @@ Terraform files are in the repository root.
 | M9 | The `/metrics` endpoint | [m09-metrics-endpoint.png](m09-metrics-endpoint.png) |
 | M9 | The Prometheus Targets page, 2 of 2 up | [m09-prometheus-targets-up.png](m09-prometheus-targets-up.png) |
 | M9 | The Grafana dashboard, 5 panels with data | [m09-grafana-dashboard.png](m09-grafana-dashboard.png) |
-| M10 | The recorded demo, 4 minutes | [m10-demo.mp4](m10-demo.mp4) |
+| M10 | The recorded demo, 4 minutes | [../../demo/mazehub-demo.mp4](../../demo/mazehub-demo.mp4) |
 
 ## The demo recording
 
-`m10-demo.mp4` shows the loop the rubric asks for.
-
-| Time | What happens |
-|---|---|
-| 0:05 | A 1 line change in `helm/mazehub/values.yaml` |
-| 0:33 | `git add`, `git commit`, `git push` |
-| 1:03 | The pipeline starts, 6 jobs |
-| 2:33 | Jobs 1 to 5 pass |
-| 4:03 | Job 6 installs the chart with the new SHA tags. 5 pods Running, the smoke test returns `{"status":"READY"}` |
+The video and the slide deck are in [`../../demo/`](../../demo/). That folder has its own index
+with the timings.

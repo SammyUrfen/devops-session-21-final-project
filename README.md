@@ -462,7 +462,8 @@ suits one operator on one laptop and would not suit a team.
 ## 13. Rubric map
 
 Every screenshot is in [`docs/evidence/`](docs/evidence/). That folder has its own index, one row
-for each line the rubric asks a student to submit.
+for each line the rubric asks a student to submit. The presentation video and the slide deck are in
+[`demo/`](demo/).
 
 | Module | Points | Code | Screenshots | State |
 |---|---|---|---|---|
@@ -475,7 +476,7 @@ for each line the rubric asks a student to submit.
 | M7 Terraform | 15 | `terraform/` | `m07-*` | Done. `init`, `fmt`, `validate`, a 62-resource plan, then `apply` and `destroy` on 2026-10-16. The Console shots show the VPC with 2 public subnets and the EKS node group in `ap-south-1`. All 62 resources are destroyed |
 | M8 Kubernetes and Helm | 15 | `k8s/`, `helm/mazehub/` | `m08-*` | Done on minikube `s21`. The namespace, the chart, the install, 2 plus 2 replicas, 3 ClusterIP Services, the 2 Ingress paths, every pod Running, the HPA and the probes |
 | M9 Observability | 10 | `monitoring/` | `m09-*` | Done. `/metrics` in Prometheus format, both pod targets `up`, Grafana reachable, 5 panels with data |
-| M10 Documentation and demo | 5 | This `README.md` | `m10-demo.mp4` | Done. A 4 minute recording shows the commit, the pipeline run and the deployment update |
+| M10 Documentation and demo | 5 | This `README.md` | `demo/` | Done. A 4 minute recording shows the commit, the pipeline run and the deployment update |
 
 One layout note. The homework file asks for `application/`, `docker/` and `kubernetes/`. The rubric
 asks for `backend/`, `frontend/`, `docker-compose.yml` at the root and `k8s/`. The rubric carries
